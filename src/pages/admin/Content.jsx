@@ -1,231 +1,252 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
-import { CONTENT_MODULES, REGULATIONS } from '../../data/mockData';
-import { useState } from 'react';
-import { Plus, Search, Pencil, Trash2, Link, Upload, ChevronRight } from 'lucide-react';
+import { instructionsAPI, newsAPI, regulationsAPI } from '../../api/content';
+
+const emptyNews = { title: '', full_text: '', language: 'ru' };
+const emptyReg = { title: '', description: '', type: 'link', url: '' };
 
 export default function AdminContent() {
-  const [view, setView] = useState('hub'); // 'hub' or 'regulations'
-  const selectedModule = CONTENT_MODULES.find((m) => m.id === view) || null;
+  const [tab, setTab] = useState('news');
+  const [news, setNews] = useState([]);
+  const [regs, setRegs] = useState([]);
+  const [instructions, setInstructions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  if (view === 'regulations') {
-    return <RegulationsManage onBack={() => setView('hub')} />;
-  }
+  const [newsForm, setNewsForm] = useState(emptyNews);
+  const [newsEditId, setNewsEditId] = useState(null);
 
-  if (selectedModule) {
-    return <GenericModuleManage module={selectedModule} onBack={() => setView('hub')} />;
-  }
+  const [regForm, setRegForm] = useState(emptyReg);
+  const [regEditId, setRegEditId] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [newsRes, regRes, instructionsRes] = await Promise.all([
+        newsAPI.list(),
+        regulationsAPI.list(),
+        instructionsAPI.list(),
+      ]);
+      setNews(Array.isArray(newsRes.data) ? newsRes.data : []);
+      setRegs(Array.isArray(regRes.data) ? regRes.data : []);
+      setInstructions(Array.isArray(instructionsRes.data) ? instructionsRes.data : []);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось загрузить контент.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const stats = useMemo(() => ({
+    news: news.length,
+    regs: regs.length,
+    instructions: instructions.length,
+  }), [news, regs, instructions]);
+
+  const saveNews = async () => {
+    if (!newsForm.title.trim()) return;
+    const payload = {
+      ...newsForm,
+      published_at: new Date().toISOString(),
+      is_active: true,
+    };
+    try {
+      if (newsEditId) await newsAPI.update(newsEditId, payload);
+      else await newsAPI.create(payload);
+      setNewsForm(emptyNews);
+      setNewsEditId(null);
+      await load();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Ошибка сохранения новости.');
+    }
+  };
+
+  const saveReg = async () => {
+    if (!regForm.title.trim()) return;
+    const payload = {
+      title: regForm.title,
+      description: regForm.description,
+      type: regForm.type,
+      external_url: regForm.type === 'link' ? regForm.url : '',
+      is_active: true,
+    };
+    try {
+      if (regEditId) await regulationsAPI.update(regEditId, payload);
+      else await regulationsAPI.create(payload);
+      setRegForm(emptyReg);
+      setRegEditId(null);
+      await load();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Ошибка сохранения регламента.');
+    }
+  };
 
   return (
     <MainLayout title="Администрирование">
       <div className="page-header">
-        <div className="page-title">Управление контентом</div>
-        <div className="page-subtitle">Редактирование информации на страницах платформы</div>
+        <div>
+          <div className="page-title">Управление контентом</div>
+          <div className="page-subtitle">Новости, регламенты и инструкции</div>
+        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-        {CONTENT_MODULES.map(mod => (
-          <div key={mod.id} className="card" style={{ cursor: 'pointer', transition: 'all 0.15s' }}
-            onClick={() => setView(mod.id)}>
-            <div className="card-body">
-              <div style={{ width: 52, height: 52, borderRadius: 'var(--radius-lg)', background: mod.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, marginBottom: 14 }}>
-                {mod.icon}
-              </div>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>{mod.title}</div>
-              <p style={{ fontSize: 12, color: 'var(--gray-500)', lineHeight: 1.6, marginBottom: 14 }}>{mod.desc}</p>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 12, color: mod.id === 'welcome' ? 'var(--gray-500)' : mod.id === 'instruction' ? 'var(--success)' : 'var(--primary)', fontWeight: 500 }}>
-                  {mod.stat}
-                </span>
-                <span style={{ fontSize: 13, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  {mod.link} <ChevronRight size={13} />
-                </span>
-              </div>
-            </div>
+      {error && <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: '#b91c1c' }}>{error}</div></div>}
+      {loading && <div className="card"><div className="card-body">Загрузка...</div></div>}
+
+      {!loading && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 14 }}>
+            <Stat title="Новости" value={stats.news} />
+            <Stat title="Регламенты" value={stats.regs} />
+            <Stat title="Инструкции" value={stats.instructions} />
           </div>
-        ))}
-      </div>
+
+          <div className="tabs">
+            <button className={`tab-btn ${tab === 'news' ? 'active' : ''}`} onClick={() => setTab('news')}>Новости</button>
+            <button className={`tab-btn ${tab === 'regulations' ? 'active' : ''}`} onClick={() => setTab('regulations')}>Регламенты</button>
+            <button className={`tab-btn ${tab === 'instructions' ? 'active' : ''}`} onClick={() => setTab('instructions')}>Инструкции</button>
+          </div>
+
+          {tab === 'news' && (
+            <>
+              <div className="card" style={{ marginBottom: 12 }}>
+                <div className="card-body" style={{ display: 'grid', gap: 10 }}>
+                  <input className="form-input" placeholder="Заголовок" value={newsForm.title} onChange={(e) => setNewsForm((f) => ({ ...f, title: e.target.value }))} />
+                  <textarea className="form-textarea" placeholder="Текст новости" value={newsForm.full_text} onChange={(e) => setNewsForm((f) => ({ ...f, full_text: e.target.value }))} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-primary btn-sm" onClick={saveNews}><Plus size={13} /> {newsEditId ? 'Сохранить' : 'Добавить'}</button>
+                    {newsEditId && <button className="btn btn-secondary btn-sm" onClick={() => { setNewsEditId(null); setNewsForm(emptyNews); }}>Отмена</button>}
+                  </div>
+                </div>
+              </div>
+              <DataTable
+                rows={news}
+                columns={[
+                  { key: 'title', label: 'ЗАГОЛОВОК' },
+                  { key: 'published_at', label: 'ДАТА' },
+                ]}
+                onEdit={(item) => {
+                  setNewsEditId(item.id);
+                  setNewsForm({ title: item.title || '', full_text: item.full_text || '', language: item.language || 'ru' });
+                }}
+                onDelete={async (item) => {
+                  await newsAPI.delete(item.id);
+                  await load();
+                }}
+              />
+            </>
+          )}
+
+          {tab === 'regulations' && (
+            <>
+              <div className="card" style={{ marginBottom: 12 }}>
+                <div className="card-body" style={{ display: 'grid', gap: 10 }}>
+                  <input className="form-input" placeholder="Название" value={regForm.title} onChange={(e) => setRegForm((f) => ({ ...f, title: e.target.value }))} />
+                  <textarea className="form-textarea" placeholder="Описание" value={regForm.description} onChange={(e) => setRegForm((f) => ({ ...f, description: e.target.value }))} />
+                  <select className="form-select" value={regForm.type} onChange={(e) => setRegForm((f) => ({ ...f, type: e.target.value }))}>
+                    <option value="link">Ссылка</option>
+                    <option value="file">Файл</option>
+                  </select>
+                  {regForm.type === 'link' && (
+                    <input className="form-input" placeholder="https://..." value={regForm.url} onChange={(e) => setRegForm((f) => ({ ...f, url: e.target.value }))} />
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-primary btn-sm" onClick={saveReg}><Plus size={13} /> {regEditId ? 'Сохранить' : 'Добавить'}</button>
+                    {regEditId && <button className="btn btn-secondary btn-sm" onClick={() => { setRegEditId(null); setRegForm(emptyReg); }}>Отмена</button>}
+                  </div>
+                </div>
+              </div>
+              <DataTable
+                rows={regs}
+                columns={[
+                  { key: 'title', label: 'НАЗВАНИЕ' },
+                  { key: 'type', label: 'ТИП' },
+                  { key: 'created_at', label: 'СОЗДАНО' },
+                ]}
+                onEdit={(item) => {
+                  setRegEditId(item.id);
+                  setRegForm({
+                    title: item.title || '',
+                    description: item.description || '',
+                    type: item.type || 'link',
+                    url: item.external_url || '',
+                  });
+                }}
+                onDelete={async (item) => {
+                  await regulationsAPI.delete(item.id);
+                  await load();
+                }}
+              />
+            </>
+          )}
+
+          {tab === 'instructions' && (
+            <DataTable
+              rows={instructions}
+              columns={[
+                { key: 'title', label: 'ЗАГОЛОВОК' },
+                { key: 'language', label: 'ЯЗЫК' },
+                { key: 'updated_at', label: 'ОБНОВЛЕНО' },
+              ]}
+              hideActions
+            />
+          )}
+        </>
+      )}
     </MainLayout>
   );
 }
 
-function GenericModuleManage({ module, onBack }) {
-  const [items, setItems] = useState([
-    { id: 1, title: `${module.title}: материал 1`, desc: 'Текущая запись модуля', date: '27 фев. 2026' },
-    { id: 2, title: `${module.title}: материал 2`, desc: 'Текущая запись модуля', date: '26 фев. 2026' },
-  ]);
-  const [search, setSearch] = useState('');
-  const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState({ title: '', desc: '' });
-
-  const filtered = items.filter((d) => !search || d.title.toLowerCase().includes(search.toLowerCase()));
-
-  const openCreate = () => {
-    setEditId(null);
-    setForm({ title: '', desc: '' });
-  };
-
-  const openEdit = (row) => {
-    setEditId(row.id);
-    setForm({ title: row.title, desc: row.desc || '' });
-  };
-
-  const save = () => {
-    if (!form.title.trim()) return;
-    if (editId) {
-      setItems((prev) => prev.map((x) => (x.id === editId ? { ...x, title: form.title.trim(), desc: form.desc.trim(), date: 'сегодня' } : x)));
-      return;
-    }
-    setItems((prev) => [
-      { id: Date.now(), title: form.title.trim(), desc: form.desc.trim(), date: 'сегодня' },
-      ...prev,
-    ]);
-  };
-
-  const remove = (id) => setItems((prev) => prev.filter((x) => x.id !== id));
-
+function Stat({ title, value }) {
   return (
-    <MainLayout title="Управление контентом">
-      <div style={{ marginBottom: 16 }}>
-        <button onClick={onBack} style={{ fontSize: 13, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-          ← Контент
-        </button>
+    <div className="card">
+      <div className="card-body">
+        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{title}</div>
+        <div style={{ fontSize: 24, fontWeight: 800 }}>{value}</div>
       </div>
-      <div className="page-header">
-        <div>
-          <div className="page-title">{module.title}</div>
-          <div className="page-subtitle">{module.desc}</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-outline btn-sm" onClick={openCreate}><Plus size={13} /> Добавить запись</button>
-          <button className="btn btn-primary btn-sm" onClick={save}><Upload size={13} /> Сохранить</button>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="card-body" style={{ display: 'grid', gap: 10 }}>
-          <input className="form-input" placeholder="Название" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
-          <textarea className="form-textarea" placeholder="Описание" value={form.desc} onChange={(e) => setForm((f) => ({ ...f, desc: e.target.value }))} />
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-body" style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
-            <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Поиск по названию..." value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-          <span style={{ fontSize: 13, color: 'var(--gray-500)', flexShrink: 0 }}>{filtered.length} записей</span>
-        </div>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>ЗАПИСЬ</th>
-                <th>ОПИСАНИЕ</th>
-                <th>ОБНОВЛЕНО</th>
-                <th>ДЕЙСТВИЯ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row) => (
-                <tr key={row.id}>
-                  <td style={{ fontWeight: 600 }}>{row.title}</td>
-                  <td style={{ color: 'var(--gray-500)' }}>{row.desc || '—'}</td>
-                  <td style={{ color: 'var(--gray-500)' }}>{row.date}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn-icon" onClick={() => openEdit(row)}><Pencil size={13} /></button>
-                      <button className="btn-icon" style={{ color: 'var(--danger)' }} onClick={() => remove(row.id)}><Trash2 size={13} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </MainLayout>
+    </div>
   );
 }
 
-function RegulationsManage({ onBack }) {
-  const [docs, setDocs] = useState(REGULATIONS.map((r, i) => ({
-    id: i + 1,
-    title: r.title,
-    desc: r.desc,
-    format: r.type === 'link' ? 'Внешняя ссылка' : r.type === 'pdf' ? `PDF, ${r.size}` : `DOCX, ${r.size}`,
-    date: '25 окт. 2025',
-  })));
-  const [search, setSearch] = useState('');
-
-  const filtered = docs.filter(d => !search || d.title.toLowerCase().includes(search.toLowerCase()));
-
+function DataTable({ rows, columns, onEdit, onDelete, hideActions = false }) {
   return (
-    <MainLayout title="Управление контентом">
-      <div style={{ marginBottom: 16 }}>
-        <button onClick={onBack} style={{ fontSize: 13, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-          ← Контент
-        </button>
-      </div>
-      <div className="page-header">
-        <div>
-          <div className="page-title">Регламенты и база знаний</div>
-          <div className="page-subtitle">Загрузка документов, добавление внешних ссылок на регламенты.</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-outline btn-sm"><Link size={13} /> Добавить ссылку</button>
-          <button className="btn btn-primary btn-sm"><Upload size={13} /> Загрузить файл</button>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-body" style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
-            <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Поиск по названию..." value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-          <span style={{ fontSize: 13, color: 'var(--gray-500)', flexShrink: 0 }}>📄 {filtered.length} документа</span>
-          <button className="btn btn-secondary btn-sm">Фильтры</button>
-        </div>
-
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>НАЗВАНИЕ ДОКУМЕНТА</th>
-                <th>ФОРМАТ</th>
-                <th>ДАТА ИЗМЕНЕНИЯ</th>
-                <th>ДЕЙСТВИЯ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(doc => (
-                <tr key={doc.id}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: 6, background: doc.format.includes('ссылка') ? '#EDE9FE' : doc.format.includes('PDF') ? '#FEE2E2' : '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <span style={{ fontSize: 14 }}>{doc.format.includes('ссылка') ? '🔗' : '📄'}</span>
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 500, fontSize: 13 }}>{doc.title}</div>
-                        <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>{doc.desc?.slice(0, 50)}...</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ fontSize: 13, color: 'var(--gray-500)' }}>{doc.format}</td>
-                  <td style={{ fontSize: 13, color: 'var(--gray-500)' }}>{doc.date}</td>
+    <div className="card">
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              {columns.map((c) => <th key={c.key}>{c.label}</th>)}
+              {!hideActions && <th>ДЕЙСТВИЯ</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                {columns.map((c) => (
+                  <td key={`${row.id}-${c.key}`}>{String(row[c.key] ?? '').slice(0, 120) || '-'}</td>
+                ))}
+                {!hideActions && (
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn-icon"><Pencil size={13} /></button>
-                      <button className="btn-icon" style={{ color: 'var(--danger)' }}><Trash2 size={13} /></button>
+                      <button className="btn-icon" onClick={() => onEdit?.(row)}><Pencil size={13} /></button>
+                      <button className="btn-icon" style={{ color: 'var(--danger)' }} onClick={() => onDelete?.(row)}><Trash2 size={13} /></button>
                     </div>
                   </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                )}
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td colSpan={columns.length + (hideActions ? 0 : 1)}>Данных пока нет.</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
-    </MainLayout>
+    </div>
   );
 }

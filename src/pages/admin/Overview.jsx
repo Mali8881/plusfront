@@ -1,133 +1,136 @@
+import { useEffect, useMemo, useState } from 'react';
 import MainLayout from '../../layouts/MainLayout';
-import { USERS } from '../../data/mockData';
-import { useState } from 'react';
-
-const MODULES = [
-  { id: 'content',    label: 'Контент (Главная, Инструкция, Регламенты)', desc: 'Новости, приветственные блоки, инструкции, регламенты.',         options: ['CRUD', 'Только просмотр'],                                       def: 'CRUD' },
-  { id: 'onboarding', label: 'Онбординг / Отчёты',                        desc: 'Дни стажировки, дедлайны, статусы отчётов, комментарии.',         options: ['Управление днями и контентом', 'Проверка отчётов'],              def: 'Управление днями и контентом', extra: 'Проверка отчётов' },
-  { id: 'users',      label: 'Пользователи',                               desc: 'Работа только со стажёрами, без доступа к администраторам.',      options: ['Стажёры (создание / деактивация)', 'Администраторы'],           def: 'Стажёры (создание / деактивация)' },
-  { id: 'schedules',  label: 'Графики работы',                             desc: 'Типовые графики и назначение графиков стажёрам.',                 options: ['Типовые графики', 'Управление календарём'],                     def: 'Типовые графики' },
-  { id: 'feedback',   label: 'Обратная связь',                             desc: 'Очередь обращений, статусы, типы жалоб и предложений.',          options: ['Просмотр и обработка обращений'],                               def: 'Просмотр и обработка обращений' },
-  { id: 'system',     label: 'Система, безопасность, интерфейс',           desc: 'Доступ только у суперадмина, для админа всегда выключено.',       options: ['Система и безопасность', 'Настройки интерфейса'],               def: null },
-];
-
-const admins = USERS.filter(u => u.role === 'admin' || u.role === 'superadmin');
+import { usersAPI } from '../../api/auth';
+import { auditAPI, feedbackAPI, onboardingAPI } from '../../api/content';
 
 export default function AdminOverview() {
-  const [selectedAdmin, setSelectedAdmin] = useState(admins[0]);
-  const [moduleState, setModuleState] = useState({});
-  const visibleModules = MODULES.filter((m) => {
-    if (m.id !== 'system') return true;
-    return selectedAdmin?.role === 'superadmin';
-  });
+  const [users, setUsers] = useState([]);
+  const [audit, setAudit] = useState([]);
+  const [feedback, setFeedback] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const [usersRes, auditRes, feedbackRes, reportsRes] = await Promise.all([
+          usersAPI.list(),
+          auditAPI.list().catch(() => ({ data: [] })),
+          feedbackAPI.list().catch(() => ({ data: [] })),
+          onboardingAPI.getReports().catch(() => ({ data: [] })),
+        ]);
+        setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
+        setAudit(Array.isArray(auditRes.data) ? auditRes.data : []);
+        setFeedback(Array.isArray(feedbackRes.data) ? feedbackRes.data : []);
+        setReports(Array.isArray(reportsRes.data) ? reportsRes.data : []);
+      } catch (e) {
+        setError(e.response?.data?.detail || 'Не удалось загрузить overview.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const stats = useMemo(() => {
+    const activeUsers = users.filter((u) => u.is_active).length;
+    const interns = users.filter((u) => u.role === 'intern').length;
+    const admins = users.filter((u) => u.role === 'admin' || u.role === 'superadmin').length;
+    const sentReports = reports.filter((r) => String(r.status || '').toUpperCase() === 'SENT').length;
+    const newFeedback = feedback.filter((f) => f.status === 'new').length;
+    return { activeUsers, interns, admins, sentReports, newFeedback };
+  }, [users, reports, feedback]);
 
   return (
     <MainLayout title="Админ-панель">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+      <div className="page-header">
         <div>
-          <div className="page-title">Обзор ролей и прав доступа</div>
-          <div className="page-subtitle">Управление пользователями, ролями, модулями и системными настройками платформы.</div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <span className="badge badge-purple" style={{ marginBottom: 6, display: 'block' }}>
-            🛡️ Полный доступ · Суперадминистратор
-          </span>
-          <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
-            Активных: {USERS.filter(u => u.status === 'active').length} · Стажёров: {USERS.filter(u => u.role === 'intern').length}
-          </div>
+          <div className="page-title">Обзор системы</div>
+          <div className="page-subtitle">Ключевые показатели и последние события</div>
         </div>
       </div>
 
-      <div className="grid-2" style={{ gap: 24 }}>
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Ролевой доступ (RBAC)</span>
-            <span className="badge badge-gray">3 роли</span>
+      {error && <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: '#b91c1c' }}>{error}</div></div>}
+      {loading && <div className="card"><div className="card-body">Загрузка...</div></div>}
+
+      {!loading && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))', gap: 12, marginBottom: 20 }}>
+            <Metric title="Пользователи" value={users.length} />
+            <Metric title="Активные" value={stats.activeUsers} />
+            <Metric title="Стажеры" value={stats.interns} />
+            <Metric title="Админы" value={stats.admins} />
+            <Metric title="Отчеты SENT" value={stats.sentReports} />
           </div>
-          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[
-              { name: 'Стажёр',                      icon: '📖', desc: 'Онбординг, регламенты, отчёты, профиль, инструкция.',                      badge: 'Только просмотр + свои отчёты',   color: '#D1FAE5' },
-              { name: 'Администратор / Проверяющий', icon: '🛡️', desc: 'Операционная работа с контентом, онбордингом, стажёрами.',               badge: 'Набор модулей по чек-боксам',     color: '#DBEAFE' },
-              { name: 'Суперадминистратор',           icon: '👑', desc: 'Роли, права, система, безопасность, структура интерфейса.',               badge: 'Полный контроль платформы',       color: '#FEF9C3' },
-            ].map(role => (
-              <div key={role.name} style={{ border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', padding: '12px 14px', background: role.color + '40' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 16 }}>{role.icon}</span>
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>{role.name}</span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 6 }}>{role.desc}</div>
-                <span className="badge badge-gray" style={{ fontSize: 11 }}>{role.badge}</span>
+
+          <div className="grid-2" style={{ gap: 20 }}>
+            <div className="card">
+              <div className="card-header"><span className="card-title">Последние события аудита</span></div>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr><th>ВРЕМЯ</th><th>ACTOR</th><th>ACTION</th><th>LEVEL</th></tr>
+                  </thead>
+                  <tbody>
+                    {audit.slice(0, 10).map((row) => (
+                      <tr key={row.id}>
+                        <td>{String(row.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+                        <td>{row.actor_username || '-'}</td>
+                        <td>{row.action}</td>
+                        <td>{row.level || '-'}</td>
+                      </tr>
+                    ))}
+                    {audit.length === 0 && (
+                      <tr><td colSpan={4}>Событий пока нет.</td></tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Модули и права администратора</span>
-          </div>
-          <div className="card-body">
-            <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 12 }}>
-              Суперадмин настраивает доступ к модулям для каждого администратора отдельно.
             </div>
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label className="form-label">Выбранный администратор</label>
-              <select className="form-select" value={selectedAdmin?.id}
-                onChange={e => setSelectedAdmin(admins.find(a => a.id == e.target.value))}>
-                {admins.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} · {a.role === 'superadmin' ? 'Суперадминистратор' : 'Администратор'}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {visibleModules.map(mod => {
-              return (
-                <div key={mod.id} style={{ borderBottom: '1px solid var(--gray-100)', paddingBottom: 10, marginBottom: 10 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 2 }}>{mod.label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--gray-400)', marginBottom: 6 }}>{mod.desc}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {mod.options.map(opt => {
-                      const key = mod.id + '_' + opt;
-                      const defaultVal = opt === mod.def || opt === mod.extra;
-                      const checked = moduleState[key] !== undefined ? moduleState[key] : defaultVal;
-                      return (
-                        <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 12 }}>
-                          <input type="checkbox" checked={!!checked}
-                            onChange={() => setModuleState(s => ({ ...s, [key]: !checked }))} />
-                          <span style={{ background: 'var(--gray-100)', padding: '2px 8px', borderRadius: 20 }}>{opt}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
 
-      <div className="card" style={{ marginTop: 24 }}>
-        <div className="card-header"><span className="card-title">Быстрый доступ к модулям</span></div>
-        <div className="card-body">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-            {[
-              { label: 'Пользователи', icon: '👥', count: USERS.length },
-              { label: 'Роли и права',  icon: '🛡️', count: null },
-              { label: 'Контент',       icon: '📰', count: null },
-              { label: 'Онбординг',     icon: '🎓', count: null },
-            ].map(item => (
-              <div key={item.label} style={{ border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 20 }}>{item.icon}</span>
-                <div>
-                  <div style={{ fontWeight: 500, fontSize: 13 }}>{item.label}</div>
-                  {item.count && <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>{item.count} записей</div>}
-                </div>
+            <div className="card">
+              <div className="card-header"><span className="card-title">Очередь обратной связи</span></div>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr><th>ID</th><th>ТИП</th><th>СТАТУС</th><th>СОЗДАНО</th></tr>
+                  </thead>
+                  <tbody>
+                    {feedback.slice(0, 10).map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.id}</td>
+                        <td>{row.type}</td>
+                        <td>{row.status}</td>
+                        <td>{String(row.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+                      </tr>
+                    ))}
+                    {feedback.length === 0 && (
+                      <tr><td colSpan={4}>Обращений пока нет.</td></tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-            ))}
+              <div className="card-body" style={{ paddingTop: 0, color: 'var(--gray-500)', fontSize: 12 }}>
+                Новые: {stats.newFeedback}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </MainLayout>
+  );
+}
+
+function Metric({ title, value }) {
+  return (
+    <div className="card">
+      <div className="card-body">
+        <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>{title}</div>
+        <div style={{ fontSize: 24, fontWeight: 800 }}>{value}</div>
+      </div>
+    </div>
   );
 }

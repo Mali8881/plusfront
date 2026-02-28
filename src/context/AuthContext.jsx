@@ -5,7 +5,7 @@ import { listCustomMockUsers, MOCK_USERS_CHANGED_EVENT } from '../utils/mockUser
 const AuthContext = createContext(null);
 
 // ── Хард-код для режима без backend (USE_MOCK=true) ──────────────────────────
-const USE_MOCK = true; // Переключи в false когда подключишь backend
+const USE_MOCK = false; // Переключи в true для локальных моков
 
 export const HARDCODED_USERS = [
   {

@@ -15,7 +15,7 @@ export default function Login() {
     setError('');
     try {
       const u = await login(loginStr, passStr);
-      if (u.role === 'admin' || u.role === 'superadmin') navigate('/admin/overview');
+      if (u.role === 'department_head' || u.role === 'admin' || u.role === 'superadmin') navigate('/admin/overview');
       else navigate('/dashboard');
     } catch (err) {
       setError(err.message || 'Неверный логин или пароль');
@@ -105,3 +105,4 @@ export default function Login() {
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-import api from './axios';
+﻿import api from './axios';
 
 export const newsAPI = {
   list: () => api.get('/core/news/'),
@@ -12,10 +12,16 @@ export const regulationsAPI = {
   create: (data) => api.post('/content/regulations/', data),
   update: (id, data) => api.patch(`/content/regulations/${id}/`, data),
   delete: (id) => api.delete(`/content/regulations/${id}/`),
+  markRead: (id) => api.post(`/v1/regulations/${id}/read/`),
+  sendFeedback: (id, data) => api.post(`/v1/regulations/${id}/feedback/`, data),
+  submitQuiz: (id, data) => api.post(`/v1/regulations/${id}/quiz/`, data),
 };
 
 export const instructionsAPI = {
   list: () => api.get('/content/instructions/'),
+  create: (data) => api.post('/content/instructions/', data),
+  update: (id, data) => api.patch(`/content/instructions/${id}/`, data),
+  delete: (id) => api.delete(`/content/instructions/${id}/`),
 };
 
 export const onboardingAPI = {
@@ -62,6 +68,9 @@ export const tasksAPI = {
   create: (data) => api.post('/v1/tasks/create/', data),
   detail: (id) => api.get(`/v1/tasks/${id}/`),
   update: (id, data) => api.patch(`/v1/tasks/${id}/`, data),
+  move: (id, column_id) => api.patch(`/v1/tasks/${id}/move/`, { column_id }),
+  dailyReports: (params) => api.get('/v1/reports/employee/daily/', { params }),
+  submitDailyReport: (data) => api.post('/v1/reports/employee/daily/', data),
 };
 
 export const companyAPI = {
@@ -77,3 +86,5 @@ export const payrollAPI = {
   createSalaryProfile: (data) => api.post('/v1/payroll/admin/salary-profiles/', data),
   updateSalaryProfile: (id, data) => api.patch(`/v1/payroll/admin/salary-profiles/${id}/`, data),
 };
+
+

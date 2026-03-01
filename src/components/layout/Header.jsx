@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, ChevronDown, LogOut, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -10,11 +10,12 @@ import {
 } from '../../utils/notifications';
 
 const ROLE_COLORS = {
-  intern:         '#2563EB',
-  employee:       '#16A34A',
+  intern: '#2563EB',
+  employee: '#16A34A',
   projectmanager: '#7C3AED',
-  admin:          '#EA580C',
-  superadmin:     '#BE123C',
+  department_head: '#0EA5E9',
+  admin: '#EA580C',
+  superadmin: '#BE123C',
 };
 
 export default function Header({ title }) {
@@ -26,9 +27,17 @@ export default function Header({ title }) {
   const [notifs, setNotifs] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const initials = user?.name?.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase() || '??';
+  const initials = user?.name?.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase() || '??';
   const roleColor = ROLE_COLORS[user?.role] || '#2563EB';
   const firstName = user?.name?.split(' ')[0] || '';
+
+  const i18n = {
+    ru: { welcome: 'Добро пожаловать', notifications: 'Уведомления', read: 'Прочитано', noEvents: 'Новых событий нет.', profile: 'Профиль', logout: 'Выйти' },
+    en: { welcome: 'Welcome', notifications: 'Notifications', read: 'Mark read', noEvents: 'No new events.', profile: 'Profile', logout: 'Logout' },
+    kg: { welcome: 'Кош келиңиз', notifications: 'Билдирмелер', read: 'Окулган', noEvents: 'Жаңы окуялар жок.', profile: 'Профиль', logout: 'Чыгуу' },
+  }[locale] || {
+    welcome: 'Добро пожаловать', notifications: 'Уведомления', read: 'Прочитано', noEvents: 'Новых событий нет.', profile: 'Профиль', logout: 'Выйти',
+  };
 
   const refreshNotifications = () => {
     if (!user) return;
@@ -44,7 +53,7 @@ export default function Header({ title }) {
 
   const readAllNotifications = () => {
     if (!user) return;
-    markAllNotificationsRead(user.id, notifs.map(n => n.id));
+    markAllNotificationsRead(user.id, notifs.map((n) => n.id));
     setUnreadCount(0);
   };
 
@@ -52,7 +61,7 @@ export default function Header({ title }) {
     <header className="header">
       <div className="header-title">{title || ''}</div>
       <div style={{ flex: 1, paddingLeft: 20, fontSize: 14, color: 'var(--gray-500)', display: 'flex', alignItems: 'center', gap: 6 }}>
-        {t('header.welcome', 'Добро пожаловать')}, <b style={{ color: 'var(--gray-800)' }}>{firstName}!</b>
+        {i18n.welcome}, <b style={{ color: 'var(--gray-800)' }}>{firstName}!</b>
       </div>
       <div className="header-lang" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         {['ru', 'en', 'kg'].map((code, idx) => (
@@ -76,22 +85,22 @@ export default function Header({ title }) {
           </button>
         ))}
       </div>
-      <div className="header-notif" style={{ position: 'relative', cursor: 'pointer' }} onClick={() => { setNotifOpen(o => !o); refreshNotifications(); }}>
+      <div className="header-notif" style={{ position: 'relative', cursor: 'pointer' }} onClick={() => { setNotifOpen((o) => !o); refreshNotifications(); }}>
         <Bell size={18} color="var(--gray-500)" />
         {unreadCount > 0 && <div className="header-notif-badge" />}
         {notifOpen && (
           <div style={{ position: 'absolute', top: '100%', right: -20, marginTop: 8, width: 360, maxWidth: 'calc(100vw - 24px)', background: 'var(--white)', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', zIndex: 120 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--gray-100)' }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{t('header.notifications', 'Уведомления')}</div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{i18n.notifications}</div>
               <button className="btn btn-secondary btn-sm" onClick={(e) => { e.stopPropagation(); readAllNotifications(); }}>
-                {t('header.read', 'Прочитано')}
+                {i18n.read}
               </button>
             </div>
             <div style={{ maxHeight: 360, overflow: 'auto', padding: 8 }}>
               {notifs.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--gray-500)', padding: 8 }}>{t('header.noEvents', 'Новых событий нет.')}</div>
+                <div style={{ fontSize: 12, color: 'var(--gray-500)', padding: 8 }}>{i18n.noEvents}</div>
               )}
-              {notifs.map(n => (
+              {notifs.map((n) => (
                 <div key={n.id} style={{ padding: '8px 10px', borderBottom: '1px solid var(--gray-100)' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-800)' }}>{n.title}</div>
                   <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 2 }}>{n.text}</div>
@@ -102,7 +111,7 @@ export default function Header({ title }) {
           </div>
         )}
       </div>
-      <div className="header-user" onClick={() => setDropOpen(o => !o)} style={{ position: 'relative' }}>
+      <div className="header-user" onClick={() => setDropOpen((o) => !o)} style={{ position: 'relative' }}>
         <div className="header-user-info">
           <div className="header-user-name">{user?.name?.split(' ').slice(0, 2).join(' ')}</div>
           <div className="header-user-role">{user?.roleLabel}</div>
@@ -124,12 +133,12 @@ export default function Header({ title }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', fontSize: 14, color: 'var(--gray-700)' }}
               onClick={() => { navigate('/profile'); setDropOpen(false); }}>
-              <User size={15} /> {t('header.profile', 'Профиль')}
+              <User size={15} /> {i18n.profile}
             </div>
             <div style={{ height: 1, background: 'var(--gray-200)', margin: '4px 0' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', fontSize: 14, color: 'var(--danger)' }}
               onClick={() => { logout(); navigate('/login'); }}>
-              <LogOut size={15} /> {t('header.logout', 'Выйти')}
+              <LogOut size={15} /> {i18n.logout}
             </div>
           </div>
         )}
@@ -137,3 +146,4 @@ export default function Header({ title }) {
     </header>
   );
 }
+

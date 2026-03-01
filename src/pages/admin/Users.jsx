@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search, Pencil, Lock, Send, Check, Ban, X } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -10,10 +10,11 @@ import {
 } from '../../api/auth';
 
 const ROLE_LABELS = {
-  intern: 'Стажёр',
+  intern: 'Стажер',
   employee: 'Сотрудник',
-  projectmanager: 'Проект-менеджер',
-  admin: 'Администратор',
+  projectmanager: 'Тимлид',
+  department_head: 'Руководитель отдела',
+  admin: 'Админ',
   superadmin: 'Суперадмин',
 };
 
@@ -60,7 +61,8 @@ export default function AdminUsers() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
 
-  const isAdminOrSuper = isSuperAdmin || user?.role === 'admin';
+  const isAdminOrSuper = isSuperAdmin || user?.role === 'admin' || user?.role === 'department_head';
+  const canAssignAdminRoles = isSuperAdmin || user?.role === 'admin';
 
   const loadAll = async () => {
     setLoading(true);
@@ -160,7 +162,7 @@ export default function AdminUsers() {
       await promotionRequestsAPI.create({
         user_id: targetUser.id,
         requested_role: 'employee',
-        reason: 'Заявка на перевод стажёра в сотрудники.',
+        reason: 'Заявка на перевод стажера в сотрудники.',
       });
       await loadAll();
     } catch {
@@ -326,10 +328,11 @@ export default function AdminUsers() {
                 <div className="form-group">
                   <label className="form-label">Роль</label>
                   <select className="form-select" value={form.role} onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value }))}>
-                    <option value="intern">Стажёр</option>
+                    <option value="intern">Стажер</option>
                     <option value="employee">Сотрудник</option>
-                    <option value="projectmanager">Проект-менеджер</option>
-                    <option value="admin">Администратор</option>
+                    <option value="projectmanager">Тимлид</option>
+                    {canAssignAdminRoles ? <option value="department_head">Руководитель отдела</option> : null}
+                    {canAssignAdminRoles ? <option value="admin">Админ</option> : null}
                     {isSuperAdmin ? <option value="superadmin">Суперадмин</option> : null}
                   </select>
                 </div>

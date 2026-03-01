@@ -31,7 +31,11 @@ function mondayOf(date = new Date()) {
 }
 
 function isoDate(date) {
-  return new Date(date).toISOString().slice(0, 10);
+  const d = new Date(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function formatDate(date) {
@@ -103,14 +107,20 @@ export default function AdminSchedules() {
 
   const boardColumns = useMemo(() => {
     const cols = DAY_LABELS.map((label, idx) => ({ label, index: idx, entries: [] }));
+    const coveredByWeeklyPlan = new Set();
+
+    // 1) Approved weekly plans (priority source)
     plansForWeek
       .filter((p) => p.status === 'approved')
       .forEach((plan) => {
-        const name = plan.username || usersMap.get(Number(plan.user))?.full_name || `#${plan.user}`;
+        const userId = Number(plan.user);
+        const name = plan.username || usersMap.get(userId)?.full_name || usersMap.get(userId)?.username || `#${plan.user}`;
         (plan.days || []).forEach((day) => {
           const date = day.date ? new Date(`${day.date}T00:00:00`) : null;
           if (!date) return;
           const idx = date.getDay() === 0 ? 6 : date.getDay() - 1;
+          const dateIso = day.date;
+          coveredByWeeklyPlan.add(`${userId}:${dateIso}`);
           if (day.mode === 'day_off') return;
           cols[idx].entries.push({
             id: `${plan.id}-${day.date}`,
@@ -121,8 +131,38 @@ export default function AdminSchedules() {
           });
         });
       });
+
+    // 2) Approved schedule assignments (fallback source when no weekly plan for a day)
+    const weekStartDate = new Date(`${weekFilter}T00:00:00`);
+    const templateById = new Map(templates.map((t) => [Number(t.id), t]));
+    requests
+      .filter((r) => r.approved)
+      .forEach((assignment) => {
+        const userId = Number(assignment.user);
+        const template = templateById.get(Number(assignment.schedule));
+        if (!template) return;
+        const workDays = Array.isArray(template.work_days) ? template.work_days : [];
+        const name = usersMap.get(userId)?.full_name || usersMap.get(userId)?.username || `#${assignment.user}`;
+
+        for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
+          if (!workDays.includes(dayOffset)) continue;
+          const date = new Date(weekStartDate);
+          date.setDate(weekStartDate.getDate() + dayOffset);
+          const dateIso = isoDate(date);
+          if (coveredByWeeklyPlan.has(`${userId}:${dateIso}`)) continue;
+
+          cols[dayOffset].entries.push({
+            id: `assignment-${assignment.id}-${dateIso}`,
+            user: name,
+            from: shortTime(template.start_time),
+            to: shortTime(template.end_time),
+            mode: 'офис',
+          });
+        }
+      });
+
     return cols;
-  }, [plansForWeek, usersMap]);
+  }, [plansForWeek, usersMap, requests, templates, weekFilter]);
 
   const saveTemplate = async () => {
     if (!templateForm.name.trim()) return;

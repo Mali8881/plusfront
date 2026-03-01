@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { newsAPI, feedbackAPI } from '../../api/content';
 
 const BANNERS = {
-  intern: { title: 'Добро пожаловать в команду', action: 'Перейти к онбордингу', path: '/onboarding' },
+  intern: { title: 'Добро пожаловать в команду', action: 'Начать стажировку', path: '/onboarding?day=1' },
   employee: { title: 'Рабочая панель сотрудника', action: 'Мой профиль', path: '/profile' },
   projectmanager: { title: 'Панель руководителя', action: 'Задачи команды', path: '/tasks' },
   admin: { title: 'Панель администратора', action: 'Открыть админку', path: '/admin/overview' },
@@ -81,6 +81,7 @@ export default function Dashboard() {
       await feedbackAPI.create({
         type: fbType,
         text,
+        is_anonymous: fbMode === 'anonymous',
         full_name: fbMode === 'anonymous' ? '' : (user?.name || user?.username || ''),
         contact: fbMode === 'anonymous' ? '' : (user?.email || ''),
       });
@@ -124,38 +125,40 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div className="card" style={{ maxWidth: 720 }}>
-        <div className="card-body">
-          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Обратная связь</h3>
-          <div className="form-group" style={{ marginBottom: 10 }}>
-            <label className="form-label">Тип</label>
-            <select className="form-select" value={fbType} onChange={(e) => setFbType(e.target.value)}>
-              {FEEDBACK_TYPES.map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
-              ))}
-            </select>
+      {user?.role !== 'intern' && (
+        <div className="card" style={{ maxWidth: 720 }}>
+          <div className="card-body">
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Обратная связь</h3>
+            <div className="form-group" style={{ marginBottom: 10 }}>
+              <label className="form-label">Тип</label>
+              <select className="form-select" value={fbType} onChange={(e) => setFbType(e.target.value)}>
+                {FEEDBACK_TYPES.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 10 }}>
+              <label className="form-label">Сообщение</label>
+              <textarea
+                className="form-textarea"
+                value={fbText}
+                onChange={(e) => setFbText(e.target.value)}
+                placeholder="Опишите обращение"
+                style={{ minHeight: 80 }}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label className="form-label">Формат</label>
+              <select className="form-select" value={fbMode} onChange={(e) => setFbMode(e.target.value)}>
+                <option value="named">Неанонимно</option>
+                <option value="anonymous">Анонимно</option>
+              </select>
+            </div>
+            <button className="btn btn-primary" onClick={sendFeedback}>Отправить</button>
+            {fbMsg ? <div style={{ marginTop: 8, fontSize: 12 }}>{fbMsg}</div> : null}
           </div>
-          <div className="form-group" style={{ marginBottom: 10 }}>
-            <label className="form-label">Сообщение</label>
-            <textarea
-              className="form-textarea"
-              value={fbText}
-              onChange={(e) => setFbText(e.target.value)}
-              placeholder="Опишите обращение"
-              style={{ minHeight: 80 }}
-            />
-          </div>
-          <div className="form-group" style={{ marginBottom: 12 }}>
-            <label className="form-label">Формат</label>
-            <select className="form-select" value={fbMode} onChange={(e) => setFbMode(e.target.value)}>
-              <option value="named">Неанонимно</option>
-              <option value="anonymous">Анонимно</option>
-            </select>
-          </div>
-          <button className="btn btn-primary" onClick={sendFeedback}>Отправить</button>
-          {fbMsg ? <div style={{ marginTop: 8, fontSize: 12 }}>{fbMsg}</div> : null}
         </div>
-      </div>
+      )}
 
       {selectedNews ? (
         <div className="modal-overlay" onClick={() => setSelectedNews(null)}>

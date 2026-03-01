@@ -69,7 +69,7 @@ export const getNotificationsForUser = (user) => {
     });
   }
 
-  if (user.role === 'admin') {
+  if (user.role === 'department_head' || user.role === 'admin') {
     feedback
       .filter(f => f.type === 'Жалоба' && ['intern', 'employee', 'projectmanager'].includes(f.userRole))
       .forEach(f => {

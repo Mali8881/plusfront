@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -11,6 +11,18 @@ const PRIORITY_LABELS = {
   low: 'Низкий',
 };
 
+const DEFAULT_COLUMN_ORDERS = [1, 2, 3, 4];
+const DEFAULT_COLUMN_NAMES = {
+  1: 'Новые',
+  2: 'В работе',
+  3: 'На проверке',
+  4: 'Завершенные',
+};
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function normalizeTask(raw) {
   return {
     id: raw.id,
@@ -21,19 +33,42 @@ function normalizeTask(raw) {
     reporterName: raw.reporter_username || '',
     dueDate: raw.due_date || null,
     priority: raw.priority || 'medium',
-    column: raw.column,
+    columnId: raw.column,
+    columnOrder: Number(raw.column_order || 0),
+    columnName: raw.column_name || '',
+    boardColumns: Array.isArray(raw.board_columns) ? raw.board_columns : [],
     updatedAt: raw.updated_at,
+  };
+}
+
+function normalizeReport(raw) {
+  return {
+    id: raw.id,
+    username: raw.user_full_name || raw.username || '-',
+    date: raw.report_date,
+    started: raw.started_tasks || '',
+    taken: raw.taken_tasks || '',
+    completed: raw.completed_tasks || '',
+    blockers: raw.blockers || '',
+    summary: raw.summary || '',
   };
 }
 
 export default function Tasks() {
   const { user } = useAuth();
   const isManager = ['admin', 'superadmin', 'projectmanager'].includes(user?.role);
+  const canSubmitDaily = ['employee', 'projectmanager'].includes(user?.role);
+  const canViewDaily = ['admin', 'superadmin', 'projectmanager'].includes(user?.role);
+
   const [tasks, setTasks] = useState([]);
+  const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState('');
   const [assigneeOptions, setAssigneeOptions] = useState([]);
+  const [movingTaskId, setMovingTaskId] = useState(null);
+  const [reportDate, setReportDate] = useState(todayISO());
+
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -42,29 +77,35 @@ export default function Tasks() {
     assignee_id: '',
   });
 
-  const loadTasks = async () => {
+  const [dailyForm, setDailyForm] = useState({
+    started_tasks: '',
+    taken_tasks: '',
+    completed_tasks: '',
+    blockers: '',
+  });
+
+  const loadAll = async () => {
     setLoading(true);
     setError('');
     try {
-      const [myRes, teamRes] = await Promise.all([
+      const [myRes, teamRes, reportsRes] = await Promise.all([
         tasksAPI.my(),
         isManager ? tasksAPI.team().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+        tasksAPI.dailyReports({ date: reportDate }).catch(() => ({ data: [] })),
       ]);
-      const merged = [...(Array.isArray(myRes.data) ? myRes.data : []), ...(Array.isArray(teamRes.data) ? teamRes.data : [])];
+
+      const merged = [
+        ...(Array.isArray(myRes.data) ? myRes.data : []),
+        ...(Array.isArray(teamRes.data) ? teamRes.data : []),
+      ];
       const byId = new Map();
       merged.forEach((t) => byId.set(t.id, normalizeTask(t)));
-      const normalized = Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-      setTasks(normalized);
-      if (isManager) {
-        const derived = new Map();
-        normalized.forEach((t) => {
-          if (t.assigneeId) derived.set(String(t.assigneeId), { id: t.assigneeId, name: t.assigneeName });
-        });
-        if (user?.id) derived.set(String(user.id), { id: user.id, name: user.name || user.username || `ID ${user.id}` });
-        if (derived.size > 0) setAssigneeOptions(Array.from(derived.values()));
-      }
+      setTasks(Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)));
+
+      const reportRows = Array.isArray(reportsRes.data) ? reportsRes.data : [];
+      setReports(reportRows.map(normalizeReport));
     } catch {
-      setError('Не удалось загрузить задачи.');
+      setError('Не удалось загрузить задачи или отчеты.');
     } finally {
       setLoading(false);
     }
@@ -75,18 +116,19 @@ export default function Tasks() {
     try {
       const res = await usersAPI.list();
       const list = Array.isArray(res.data) ? res.data : [];
-      const options = list.map((u) => ({
-        id: u.id,
-        name: u.full_name || u.username || `ID ${u.id}`,
-      }));
-      setAssigneeOptions(options);
+      setAssigneeOptions(
+        list.map((u) => ({
+          id: u.id,
+          name: u.full_name || u.username || `ID ${u.id}`,
+        }))
+      );
     } catch {
-      // Keep derived assignees from loaded tasks if users endpoint is not available for this role.
+      // fallback: derive from tasks
     }
   };
 
   useEffect(() => {
-    loadTasks();
+    loadAll();
     loadAssignees();
   }, []);
 
@@ -98,27 +140,49 @@ export default function Tasks() {
     }));
   }, [showModal, user?.id]);
 
-  const byColumn = useMemo(() => {
-    const groups = new Map();
-    tasks.forEach((t) => {
-      const key = String(t.column ?? '0');
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(t);
+  useEffect(() => {
+    loadAll();
+  }, [reportDate]);
+
+  const columns = useMemo(() => {
+    const map = new Map();
+    DEFAULT_COLUMN_ORDERS.forEach((order) => {
+      map.set(order, {
+        order,
+        id: null,
+        name: DEFAULT_COLUMN_NAMES[order],
+        items: [],
+      });
     });
-    return Array.from(groups.entries())
-      .map(([columnId, items]) => ({ columnId, items }))
-      .sort((a, b) => Number(a.columnId) - Number(b.columnId));
+
+    tasks.forEach((task) => {
+      const order = task.columnOrder || 1;
+      if (!map.has(order)) {
+        map.set(order, {
+          order,
+          id: task.columnId,
+          name: task.columnName || `Колонка ${order}`,
+          items: [],
+        });
+      }
+      const col = map.get(order);
+      if (!col.id) col.id = task.columnId;
+      if (task.columnName) col.name = task.columnName;
+      col.items.push(task);
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.order - b.order);
   }, [tasks]);
 
   const createTask = async () => {
-    if (!isManager) return;
     const title = form.title.trim();
     if (!title) return;
     try {
+      const assigneeId = Number(form.assignee_id || user?.id);
       await tasksAPI.create({
         title,
         description: form.description.trim(),
-        assignee_id: Number(form.assignee_id || user?.id),
+        assignee_id: assigneeId,
         due_date: form.due_date || null,
         priority: form.priority,
       });
@@ -130,9 +194,38 @@ export default function Tasks() {
         due_date: '',
         assignee_id: '',
       });
-      await loadTasks();
+      await loadAll();
     } catch {
       setError('Не удалось создать задачу.');
+    }
+  };
+
+  const moveTask = async (task, targetOrder) => {
+    if (!task || targetOrder === task.columnOrder) return;
+    const target = task.boardColumns.find((c) => Number(c.order) === Number(targetOrder));
+    if (!target?.id) return;
+    try {
+      setMovingTaskId(task.id);
+      await tasksAPI.move(task.id, target.id);
+      await loadAll();
+    } catch {
+      setError('Не удалось изменить статус задачи.');
+    } finally {
+      setMovingTaskId(null);
+    }
+  };
+
+  const submitDailyReport = async () => {
+    if (!canSubmitDaily) return;
+    try {
+      await tasksAPI.submitDailyReport({
+        report_date: reportDate,
+        ...dailyForm,
+      });
+      setDailyForm({ started_tasks: '', taken_tasks: '', completed_tasks: '', blockers: '' });
+      await loadAll();
+    } catch {
+      setError('Не удалось отправить ежедневный отчет.');
     }
   };
 
@@ -140,10 +233,10 @@ export default function Tasks() {
     <MainLayout title="Задачи">
       <div className="page-header">
         <div>
-          <div className="page-title">Задачи</div>
-          <div className="page-subtitle">Список задач из backend</div>
+          <div className="page-title">Трекер задач</div>
+          <div className="page-subtitle">Канбан доска: новые, в работе, на проверке, завершенные</div>
         </div>
-        {isManager ? <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Новая задача</button> : null}
+        <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Новая задача</button>
       </div>
 
       {error ? <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div> : null}
@@ -151,29 +244,100 @@ export default function Tasks() {
       {loading ? (
         <div className="card"><div className="card-body">Загрузка...</div></div>
       ) : (
-        <div className="kanban-board">
-          {byColumn.map((column) => (
-            <div key={column.columnId} className="kanban-col">
-              <div className="kanban-col-header">
-                <span className="kanban-col-title">Колонка #{column.columnId}</span>
-                <span className="badge badge-blue">{column.items.length}</span>
-              </div>
-              {column.items.map((task) => (
-                <div key={task.id} className="kanban-card">
-                  <div className="kanban-card-title">{task.title}</div>
-                  <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 8 }}>{task.description || 'Без описания'}</div>
-                  <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Исполнитель: {task.assigneeName}</div>
-                  <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Приоритет: {PRIORITY_LABELS[task.priority] || task.priority}</div>
-                  <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Срок: {task.dueDate || '—'}</div>
+        <>
+          <div className="kanban-board">
+            {columns.map((column) => (
+              <div key={column.order} className="kanban-col">
+                <div className="kanban-col-header">
+                  <span className="kanban-col-title">{column.name}</span>
+                  <span className="badge badge-blue">{column.items.length}</span>
                 </div>
-              ))}
+                {column.items.map((task) => (
+                  <div key={task.id} className="kanban-card">
+                    <div className="kanban-card-title">{task.title}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 8 }}>{task.description || 'Без описания'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Исполнитель: {task.assigneeName}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Постановщик: {task.reporterName || '-'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Приоритет: {PRIORITY_LABELS[task.priority] || task.priority}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Срок: {task.dueDate || '—'}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                      {DEFAULT_COLUMN_ORDERS.map((order) => (
+                        <button
+                          key={`${task.id}-${order}`}
+                          className="btn btn-secondary btn-sm"
+                          type="button"
+                          onClick={() => moveTask(task, order)}
+                          disabled={movingTaskId === task.id || order === task.columnOrder}
+                        >
+                          {DEFAULT_COLUMN_NAMES[order]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {canSubmitDaily && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-body" style={{ display: 'grid', gap: 10 }}>
+                <div style={{ fontWeight: 700 }}>Ежедневный отчет</div>
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Дата</label>
+                    <input className="form-input" type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
+                  </div>
+                </div>
+                <textarea className="form-textarea" placeholder="Что начал" value={dailyForm.started_tasks} onChange={(e) => setDailyForm((p) => ({ ...p, started_tasks: e.target.value }))} />
+                <textarea className="form-textarea" placeholder="Что взял в работу" value={dailyForm.taken_tasks} onChange={(e) => setDailyForm((p) => ({ ...p, taken_tasks: e.target.value }))} />
+                <textarea className="form-textarea" placeholder="Что завершил" value={dailyForm.completed_tasks} onChange={(e) => setDailyForm((p) => ({ ...p, completed_tasks: e.target.value }))} />
+                <textarea className="form-textarea" placeholder="Проблемы / блокеры" value={dailyForm.blockers} onChange={(e) => setDailyForm((p) => ({ ...p, blockers: e.target.value }))} />
+                <div>
+                  <button className="btn btn-primary" onClick={submitDailyReport}>Отправить отчет</button>
+                </div>
+              </div>
             </div>
-          ))}
-          {byColumn.length === 0 ? <div className="card"><div className="card-body">Задач пока нет.</div></div> : null}
-        </div>
+          )}
+
+          {canViewDaily && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-body">
+                <div style={{ fontWeight: 700, marginBottom: 10 }}>Отчеты сотрудников за {reportDate}</div>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Сотрудник</th>
+                        <th>Начал</th>
+                        <th>Взял в работу</th>
+                        <th>Завершил</th>
+                        <th>Блокеры</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reports.map((r) => (
+                        <tr key={r.id}>
+                          <td>{r.username}</td>
+                          <td>{r.started || '-'}</td>
+                          <td>{r.taken || '-'}</td>
+                          <td>{r.completed || '-'}</td>
+                          <td>{r.blockers || '-'}</td>
+                        </tr>
+                      ))}
+                      {reports.length === 0 && (
+                        <tr><td colSpan={5}>Отчетов за этот день пока нет.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {showModal && isManager ? (
+      {showModal ? (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <div className="modal-header">
@@ -190,15 +354,22 @@ export default function Tasks() {
                 <textarea className="form-textarea" style={{ minHeight: 80 }} value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} />
               </div>
               <div className="grid-2" style={{ marginBottom: 12 }}>
-                <div className="form-group">
-                  <label className="form-label">Исполнитель</label>
-                  <select className="form-select" value={form.assignee_id || user?.id || ''} onChange={(e) => setForm((prev) => ({ ...prev, assignee_id: e.target.value }))}>
-                    {assigneeOptions.length === 0 ? <option value={user?.id || ''}>Я</option> : null}
-                    {assigneeOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>{opt.name}</option>
-                    ))}
-                  </select>
-                </div>
+                {isManager ? (
+                  <div className="form-group">
+                    <label className="form-label">Исполнитель</label>
+                    <select className="form-select" value={form.assignee_id || user?.id || ''} onChange={(e) => setForm((prev) => ({ ...prev, assignee_id: e.target.value }))}>
+                      {assigneeOptions.length === 0 ? <option value={user?.id || ''}>Я</option> : null}
+                      {assigneeOptions.map((opt) => (
+                        <option key={opt.id} value={opt.id}>{opt.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="form-group">
+                    <label className="form-label">Исполнитель</label>
+                    <input className="form-input" value={user?.name || user?.username || 'Я'} disabled />
+                  </div>
+                )}
                 <div className="form-group">
                   <label className="form-label">Приоритет</label>
                   <select className="form-select" value={form.priority} onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))}>

@@ -12,6 +12,13 @@ const STATUS_LABELS = {
 
 function mondayOf(date = new Date()) {
   const d = new Date(date);
+  if (Number.isNaN(d.getTime())) {
+    const now = new Date();
+    const nowDay = now.getDay() || 7;
+    now.setDate(now.getDate() - nowDay + 1);
+    now.setHours(0, 0, 0, 0);
+    return now;
+  }
   const day = d.getDay() || 7;
   d.setDate(d.getDate() - day + 1);
   d.setHours(0, 0, 0, 0);
@@ -19,13 +26,28 @@ function mondayOf(date = new Date()) {
 }
 
 function isoDate(date) {
-  return new Date(date).toISOString().slice(0, 10);
+  const d = new Date(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function addDays(date, n) {
   const d = new Date(date);
   d.setDate(d.getDate() + n);
   return d;
+}
+
+function parseIsoDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!match) return null;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  const parsed = new Date(y, m - 1, d);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
 }
 
 function shortTime(value) {
@@ -66,7 +88,7 @@ function extractErrorMessage(e, fallback) {
 }
 
 function makeDefaultDays(weekStart) {
-  const monday = new Date(`${weekStart}T00:00:00`);
+  const monday = parseIsoDate(weekStart) || mondayOf(new Date());
   return DAY_LABELS.map((_, idx) => {
     const date = isoDate(addDays(monday, idx));
     const isWeekday = idx <= 4;
@@ -81,6 +103,48 @@ function makeDefaultDays(weekStart) {
       lunch_end: '',
     };
   });
+}
+
+function findFirstAvailableWeekStart(plans, fromDate = new Date()) {
+  const taken = new Set((Array.isArray(plans) ? plans : []).map((p) => String(p.week_start || '')));
+  const startMonday = mondayOf(fromDate);
+  for (let weekOffset = 0; weekOffset < 52; weekOffset += 1) {
+    const candidate = isoDate(addDays(startMonday, weekOffset * 7));
+    if (!taken.has(candidate)) return candidate;
+  }
+  return isoDate(startMonday);
+}
+
+function normalizeWeekStart(rawValue, fallbackValue) {
+  if (!rawValue) return fallbackValue;
+  const parsed = new Date(`${rawValue}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return fallbackValue;
+  const normalized = mondayOf(parsed);
+  const year = normalized.getFullYear();
+  const currentMonday = mondayOf(new Date());
+  if (year < 2020 || year > 2100) return fallbackValue;
+  if (normalized < currentMonday) return fallbackValue;
+  return isoDate(normalized);
+}
+
+function shiftWeek(weekStartValue, deltaWeeks, plans) {
+  const currentMonday = mondayOf(new Date());
+  const parsed = parseIsoDate(weekStartValue) || currentMonday;
+  const candidate = mondayOf(addDays(parsed, deltaWeeks * 7));
+  if (candidate < currentMonday) return isoDate(currentMonday);
+
+  const taken = new Set((Array.isArray(plans) ? plans : []).map((p) => String(p.week_start || '')));
+  const candidateIso = isoDate(candidate);
+  if (!taken.has(candidateIso)) return candidateIso;
+
+  const direction = deltaWeeks >= 0 ? 1 : -1;
+  for (let i = 1; i <= 52; i += 1) {
+    const next = mondayOf(addDays(candidate, i * 7 * direction));
+    if (next < currentMonday) break;
+    const nextIso = isoDate(next);
+    if (!taken.has(nextIso)) return nextIso;
+  }
+  return candidateIso;
 }
 
 export default function Schedule() {
@@ -113,9 +177,16 @@ export default function Schedule() {
         schedulesAPI.getHolidays(currentYear),
         schedulesAPI.weeklyPlansMy(),
       ]);
+      const plans = Array.isArray(plansRes.data) ? plansRes.data : [];
       setWorkSchedules(Array.isArray(templatesRes.data) ? templatesRes.data : []);
       setHolidays(Array.isArray(holidaysRes.data) ? holidaysRes.data : []);
-      setWeeklyPlans(Array.isArray(plansRes.data) ? plansRes.data : []);
+      setWeeklyPlans(plans);
+      setWeekStart((prev) => {
+        const recommended = findFirstAvailableWeekStart(plans);
+        const normalized = normalizeWeekStart(prev, recommended);
+        const alreadyPlanned = plans.some((p) => String(p.week_start) === String(normalized));
+        return alreadyPlanned ? recommended : normalized;
+      });
       try {
         const myRes = await schedulesAPI.getMine();
         const mine = myRes?.data || null;
@@ -137,14 +208,21 @@ export default function Schedule() {
   }, []);
 
   useEffect(() => {
-    const monday = mondayOf(new Date(`${weekStart}T00:00:00`));
+    const fallback = findFirstAvailableWeekStart(weeklyPlans);
+    const safeWeekStart = normalizeWeekStart(weekStart, fallback);
+    if (safeWeekStart !== weekStart) {
+      setWeekStart(safeWeekStart);
+      return;
+    }
+
+    const monday = mondayOf(parseIsoDate(safeWeekStart) || new Date());
     const nextStart = isoDate(monday);
-    if (nextStart !== weekStart) {
+    if (nextStart !== safeWeekStart) {
       setWeekStart(nextStart);
       return;
     }
 
-    const existing = weeklyPlans.find((p) => String(p.week_start) === String(weekStart));
+    const existing = weeklyPlans.find((p) => String(p.week_start) === String(safeWeekStart));
     if (existing?.days?.length === 7) {
       setDays(existing.days.map((d) => ({
         date: d.date,
@@ -159,7 +237,7 @@ export default function Schedule() {
       setOnlineReason(existing.online_reason || '');
       setEmployeeComment(existing.employee_comment || '');
     } else {
-      setDays(makeDefaultDays(weekStart));
+      setDays(makeDefaultDays(safeWeekStart));
       setOnlineReason('');
       setEmployeeComment('');
     }
@@ -336,7 +414,22 @@ export default function Schedule() {
                 <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 12, marginBottom: 10 }}>
                   <div>
                     <label className="form-label">Неделя (понедельник)</label>
-                    <input className="form-input" type="date" value={weekStart} onChange={(e) => setWeekStart(e.target.value)} />
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        type="button"
+                        onClick={() => setWeekStart((prev) => shiftWeek(prev, -1, weeklyPlans))}
+                      >
+                        Предыдущая неделя
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        type="button"
+                        onClick={() => setWeekStart((prev) => shiftWeek(prev, 1, weeklyPlans))}
+                      >
+                        Следующая неделя
+                      </button>
+                    </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'end', color: 'var(--gray-600)', fontSize: 13 }}>
                     Офис: {officeHours} ч · Онлайн: {onlineHours} ч

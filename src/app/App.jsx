@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+﻿import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { LocaleProvider } from '../context/LocaleContext';
 
@@ -28,7 +28,7 @@ import AutoLocaleText  from '../components/common/AutoLocaleText';
 function HomeRedirect() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === 'admin' || user.role === 'superadmin') return <Navigate to="/admin/overview" replace />;
+  if (user.role === 'department_head' || user.role === 'admin' || user.role === 'superadmin') return <Navigate to="/admin/overview" replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -58,13 +58,20 @@ function OnboardingManageRoute({ children }) {
   return children;
 }
 
-// Зарплата: все кроме стажёра
+function NonInternRoute({ children }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === 'intern') return <Navigate to="/onboarding" replace />;
+  return children;
+}
+
+// Р—Р°СЂРїР»Р°С‚Р°: РІСЃРµ РєСЂРѕРјРµ СЃС‚Р°Р¶С‘СЂР°
 function SalaryRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === 'intern') return <Navigate to="/dashboard" replace />;
-  // superadmin — через /salary тоже работает
-  if (user.role === 'admin' || user.role === 'superadmin') return children;
+  // superadmin вЂ” С‡РµСЂРµР· /salary С‚РѕР¶Рµ СЂР°Р±РѕС‚Р°РµС‚
+  if (user.role === 'department_head' || user.role === 'admin' || user.role === 'superadmin') return children;
   return children;
 }
 
@@ -75,10 +82,17 @@ function CompanyRoute({ children }) {
   return children;
 }
 
+function TasksRoute({ children }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === 'superadmin') return <Navigate to="/admin/overview" replace />;
+  return children;
+}
+
 function PublicOnlyRoute({ children }) {
   const { user } = useAuth();
   if (!user) return children;
-  if (user.role === 'admin' || user.role === 'superadmin') return <Navigate to="/admin/overview" replace />;
+  if (user.role === 'department_head' || user.role === 'admin' || user.role === 'superadmin') return <Navigate to="/admin/overview" replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -104,12 +118,12 @@ function AppRoutes() {
 
       <Route path="/dashboard"      element={<PrivateRoute><Dashboard /></PrivateRoute>} />
       <Route path="/onboarding"     element={<PrivateRoute><Onboarding /></PrivateRoute>} />
-      <Route path="/regulations"    element={<PrivateRoute><Regulations /></PrivateRoute>} />
-      <Route path="/schedule"       element={<PrivateRoute><Schedule /></PrivateRoute>} />
+      <Route path="/regulations"    element={<NonInternRoute><Regulations /></NonInternRoute>} />
+      <Route path="/schedule"       element={<NonInternRoute><Schedule /></NonInternRoute>} />
       <Route path="/profile"        element={<PrivateRoute><Profile /></PrivateRoute>} />
       <Route path="/instructions"   element={<PrivateRoute><Instructions /></PrivateRoute>} />
       <Route path="/company"        element={<CompanyRoute><Company /></CompanyRoute>} />
-      <Route path="/tasks"          element={<PrivateRoute><Tasks /></PrivateRoute>} />
+      <Route path="/tasks"          element={<TasksRoute><Tasks /></TasksRoute>} />
       <Route path="/salary"         element={<SalaryRoute><Salary /></SalaryRoute>} />
 
       <Route path="/admin/overview"   element={<AdminRoute><AdminOverview /></AdminRoute>} />
@@ -126,3 +140,4 @@ function AppRoutes() {
     </Routes>
   );
 }
+

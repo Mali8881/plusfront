@@ -4,34 +4,40 @@ import { usersAPI } from '../../api/auth';
 
 const ROLE_META = {
   superadmin: {
-    label: 'Суперадминистратор',
-    icon: '👑',
-    desc: 'Полный доступ к системе, ролям и безопасности.',
-    perms: ['Полный доступ', 'Управление пользователями', 'Системные настройки'],
+    label: 'Суперадмин',
+    icon: 'SA',
+    desc: 'Полный доступ ко всей системе, включая системные разделы.',
+    perms: ['Все права', 'Система/Безопасность', 'Интерфейс'],
   },
   admin: {
-    label: 'Администратор',
-    icon: '🛡',
-    desc: 'Операционная работа с контентом и пользователями.',
-    perms: ['Пользователи', 'Контент', 'Онбординг', 'Обратная связь'],
+    label: 'Админ',
+    icon: 'AD',
+    desc: 'Почти полный доступ, кроме системных разделов.',
+    perms: ['Пользователи', 'Роли', 'Контент', 'Графики', 'Обратная связь'],
+  },
+  department_head: {
+    label: 'Руководитель отдела',
+    icon: 'RO',
+    desc: 'Управление сотрудниками своего отдела и операционными процессами.',
+    perms: ['Пользователи отдела', 'Контент', 'Графики', 'Обратная связь'],
   },
   projectmanager: {
-    label: 'Проект-менеджер',
-    icon: '📋',
-    desc: 'Управление задачами команды и процессами отдела.',
-    perms: ['Задачи команды', 'Структура отдела', 'Просмотр отчетов'],
+    label: 'Тимлид',
+    icon: 'TL',
+    desc: 'Управление задачами команды и просмотр отчетов подчиненных.',
+    perms: ['Задачи команды', 'Отчеты команды'],
   },
   employee: {
     label: 'Сотрудник',
-    icon: '👤',
-    desc: 'Работа в личном кабинете, задачи, расписание.',
+    icon: 'EM',
+    desc: 'Работа в личном кабинете: задачи, график, отчеты.',
     perms: ['Личный кабинет', 'Задачи', 'График'],
   },
   intern: {
     label: 'Стажер',
-    icon: '🎓',
-    desc: 'Прохождение онбординга и сдача отчетов.',
-    perms: ['Онбординг', 'Регламенты', 'Отчеты'],
+    icon: 'IN',
+    desc: 'Прохождение программы адаптации и отчеты стажировки.',
+    perms: ['Онбординг', 'Отчеты'],
   },
 };
 
@@ -79,7 +85,11 @@ export default function AdminRoles() {
         </div>
       </div>
 
-      {error && <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: '#b91c1c' }}>{error}</div></div>}
+      {error && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-body" style={{ color: '#b91c1c' }}>{error}</div>
+        </div>
+      )}
       {loading && <div className="card"><div className="card-body">Загрузка...</div></div>}
 
       {!loading && (
@@ -88,7 +98,7 @@ export default function AdminRoles() {
             <div key={role.id} className="card">
               <div className="card-body">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 18 }}>{role.icon}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>{role.icon}</span>
                   <span style={{ fontWeight: 700, fontSize: 16 }}>{role.label}</span>
                 </div>
                 <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 14, lineHeight: 1.5 }}>{role.desc}</p>

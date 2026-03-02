@@ -330,26 +330,24 @@ export default function Schedule() {
 
   return (
     <MainLayout title="Мой график">
-      <div className="page-header">
+      <div className="page-header schedule-header">
         <div>
           <div className="page-title">График работы</div>
           <div className="page-subtitle">Производственный календарь и ваше расписание</div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 0, marginBottom: 14 }}>
+      <div className="schedule-tabs">
         <button
           type="button"
-          className={`btn ${scheduleSection === 'calendar' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
+          className={`schedule-tab ${scheduleSection === 'calendar' ? 'active' : ''}`}
           onClick={() => setScheduleSection('calendar')}
         >
           Календарь
         </button>
         <button
           type="button"
-          className={`btn ${scheduleSection === 'edit' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
+          className={`schedule-tab ${scheduleSection === 'edit' ? 'active' : ''}`}
           onClick={() => setScheduleSection('edit')}
         >
           Редактирование графика
@@ -357,13 +355,13 @@ export default function Schedule() {
       </div>
 
       {scheduleSection === 'calendar' && (
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(560px, 46%)', gap: 20, alignItems: 'start' }}>
+      <div className="schedule-layout">
         {/* Calendar */}
-        <div className="card">
+        <div className="card schedule-main-card">
           <div className="card-body">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700 }}>{MONTHS[month]} {year}</h3>
-              <div style={{ display: 'flex', gap: 4 }}>
+            <div className="schedule-calendar-head">
+              <h3 className="schedule-month-title">{MONTHS[month]} {year}</h3>
+              <div className="schedule-month-nav">
                 <button className="btn btn-icon" onClick={prevMonth}><ChevronLeft size={16} /></button>
                 <button className="btn btn-icon" onClick={nextMonth}><ChevronRight size={16} /></button>
               </div>
@@ -415,18 +413,18 @@ export default function Schedule() {
         </div>
 
         {/* Schedule info */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="schedule-side-stack">
           {canMarkAttendance && (
-            <div className="card">
+            <div className="card schedule-side-card">
               <div className="card-body">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>Отметка рабочего дня</span>
+                <div className="schedule-side-title-row">
+                  <span className="schedule-side-title">Отметка рабочего дня</span>
                   <span className="badge badge-blue">{workStatus}</span>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 10 }}>
+                <div className="schedule-side-meta">
                   Приход: <b>{fmtTime(dayMark?.checkIn)}</b> · Уход: <b>{fmtTime(dayMark?.checkOut)}</b>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 8 }}>
+                <div className="schedule-side-meta">
                   Режим дня: <b>{currentDayMode === 'office' ? 'Офис' : currentDayMode === 'online' ? 'Онлайн' : 'Выходной'}</b>
                 </div>
                 <div className="form-group" style={{ marginBottom: 10 }}>
@@ -460,13 +458,13 @@ export default function Schedule() {
             </div>
           )}
 
-          <div className="card">
+          <div className="card schedule-side-card">
             <div className="card-body">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <div className="schedule-side-title-row" style={{ justifyContent: 'flex-start' }}>
                 <Clock size={16} color="var(--primary)" />
-                <span style={{ fontWeight: 600, fontSize: 14 }}>Мой текущий график</span>
+                <span className="schedule-side-title">Мой текущий график</span>
               </div>
-              <p style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 16, lineHeight: 1.6 }}>
+              <p className="schedule-side-text">
                 Здесь отображается твой согласованный с руководителем график работы. Если график изменится, он автоматически обновится в этом блоке.
               </p>
                 {[
@@ -484,11 +482,11 @@ export default function Schedule() {
             </div>
           </div>
 
-          <div className="card">
+          <div className="card schedule-side-card">
             <div className="card-body">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <div className="schedule-side-title-row" style={{ justifyContent: 'flex-start' }}>
                 <Info size={16} color="var(--gray-500)" />
-                <span style={{ fontWeight: 600, fontSize: 14 }}>Обозначения</span>
+                <span className="schedule-side-title">Обозначения</span>
               </div>
               {[
                 { color: '#D1FAE5', border: '#6EE7B7', label: 'Рабочий день' },
@@ -561,148 +559,157 @@ export default function Schedule() {
                 {requestView === 'planner' && (
                   <div style={{ marginBottom: 10 }}>
                     <div className="form-label" style={{ marginBottom: 8 }}>Мой недельный план</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
-                      {DAY_ROWS.map(day => {
-                        const row = customDays.find(d => d.dayOfWeek === day.id);
-                        if (!row) return null;
+                    <div className="schedule-editor-days">
+                      {DAY_ROWS.map((day) => {
+                        const dayRow = customDays.find((d) => d.dayOfWeek === day.id);
+                        const isWork = dayRow && !dayRow.isOff;
                         return (
-                          <div
+                          <button
                             key={day.id}
-                            style={{
-                              border: day.id === selectedWeekday ? '1px solid var(--primary)' : '1px solid var(--gray-200)',
-                              background: '#EFF6FF',
-                              borderRadius: 10,
-                              padding: 10,
-                            }}
+                            type="button"
+                            className={`schedule-editor-day-btn ${selectedWeekday === day.id ? 'active' : ''}`}
+                            onClick={() => setSelectedWeekday(day.id)}
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                              <div style={{ fontWeight: 700 }}>{day.full}</div>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                                <input
-                                  type="checkbox"
-                                  checked={!row.isOff}
-                                  disabled={hasPendingSchedule}
-                                  onChange={e => {
-                                    const checked = e.target.checked;
-                                    updateCustomDay(day.id, {
-                                      isOff: !checked,
-                                      mode: checked ? 'office' : 'dayoff',
-                                    });
-                                  }}
-                                />
-                                Рабочий день
-                              </label>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                              <div>
-                                <label className="form-label" style={{ fontSize: 11 }}>Начало</label>
-                                <input
-                                  className="form-input"
-                                  type="time"
-                                  value={row.start}
-                                  disabled={hasPendingSchedule || row.isOff}
-                                  onChange={e => updateCustomDay(day.id, { start: e.target.value })}
-                                />
-                              </div>
-                              <div>
-                                <label className="form-label" style={{ fontSize: 11 }}>Конец</label>
-                                <input
-                                  className="form-input"
-                                  type="time"
-                                  value={row.end}
-                                  disabled={hasPendingSchedule || row.isOff}
-                                  onChange={e => updateCustomDay(day.id, { end: e.target.value })}
-                                />
-                              </div>
-                            </div>
-
-                            <div className="form-group" style={{ marginBottom: 8 }}>
-                              <label className="form-label" style={{ fontSize: 11 }}>Формат</label>
-                              <select
-                                className="form-select"
-                                value={row.mode || (row.isOff ? 'dayoff' : 'office')}
-                                disabled={hasPendingSchedule}
-                                onChange={e => {
-                                  const mode = e.target.value;
-                                  updateCustomDay(day.id, { mode, isOff: mode === 'dayoff' });
-                                }}
-                              >
-                                <option value="office">Офис</option>
-                                <option value="online">Онлайн</option>
-                                <option value="dayoff">Выходной</option>
-                              </select>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                              <div>
-                                <label className="form-label" style={{ fontSize: 11 }}>Обед с</label>
-                                <input
-                                  className="form-input"
-                                  type="time"
-                                  value={row.lunchStart || ''}
-                                  disabled={hasPendingSchedule || row.isOff}
-                                  onChange={e => updateCustomDay(day.id, { lunchStart: e.target.value })}
-                                />
-                              </div>
-                              <div>
-                                <label className="form-label" style={{ fontSize: 11 }}>Обед до</label>
-                                <input
-                                  className="form-input"
-                                  type="time"
-                                  value={row.lunchEnd || ''}
-                                  disabled={hasPendingSchedule || row.isOff}
-                                  onChange={e => updateCustomDay(day.id, { lunchEnd: e.target.value })}
-                                />
-                              </div>
-                            </div>
-
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                              <div style={{ fontSize: 11, color: 'var(--gray-600)' }}>Короткие перерывы</div>
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                disabled={hasPendingSchedule || row.isOff}
-                                onClick={() => addCustomBreak(day.id)}
-                              >
-                                + 15 мин
-                              </button>
-                            </div>
-                            <div style={{ display: 'grid', gap: 6 }}>
-                              {(row.breaks || []).map((br, idx) => (
-                                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6 }}>
-                                  <input
-                                    className="form-input"
-                                    type="time"
-                                    value={br.start}
-                                    disabled={hasPendingSchedule || row.isOff}
-                                    onChange={e => updateCustomBreak(day.id, idx, { start: e.target.value })}
-                                  />
-                                  <input
-                                    className="form-input"
-                                    type="time"
-                                    value={br.end}
-                                    disabled={hasPendingSchedule || row.isOff}
-                                    onChange={e => updateCustomBreak(day.id, idx, { end: e.target.value })}
-                                  />
-                                  <button
-                                    type="button"
-                                    className="btn btn-secondary btn-sm"
-                                    disabled={hasPendingSchedule || row.isOff}
-                                    onClick={() => removeCustomBreak(day.id, idx)}
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              ))}
-                              {(!row.breaks || row.breaks.length === 0) && (
-                                <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>Нет коротких перерывов</div>
-                              )}
-                            </div>
-                          </div>
+                            <span>{day.short}</span>
+                            <span style={{ fontSize: 10, opacity: 0.75 }}>{isWork ? 'Рабочий' : 'Выходной'}</span>
+                          </button>
                         );
                       })}
                     </div>
+
+                    {(() => {
+                      const activeDay = DAY_ROWS.find((d) => d.id === selectedWeekday) || DAY_ROWS[0];
+                      const row = customDays.find((d) => d.dayOfWeek === activeDay.id) || customDays[0];
+                      if (!row) return null;
+                      return (
+                        <div className="schedule-editor-card">
+                          <div className="schedule-editor-card-head">
+                            <div style={{ fontWeight: 800, fontSize: 18 }}>{activeDay.full}</div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                              <input
+                                type="checkbox"
+                                checked={!row.isOff}
+                                disabled={hasPendingSchedule}
+                                onChange={e => {
+                                  const checked = e.target.checked;
+                                  updateCustomDay(activeDay.id, {
+                                    isOff: !checked,
+                                    mode: checked ? 'office' : 'dayoff',
+                                  });
+                                }}
+                              />
+                              Рабочий день
+                            </label>
+                          </div>
+
+                          <div className="schedule-editor-grid">
+                            <div>
+                              <label className="form-label" style={{ fontSize: 11 }}>Начало</label>
+                              <input
+                                className="form-input"
+                                type="time"
+                                value={row.start}
+                                disabled={hasPendingSchedule || row.isOff}
+                                onChange={e => updateCustomDay(activeDay.id, { start: e.target.value })}
+                              />
+                            </div>
+                            <div>
+                              <label className="form-label" style={{ fontSize: 11 }}>Конец</label>
+                              <input
+                                className="form-input"
+                                type="time"
+                                value={row.end}
+                                disabled={hasPendingSchedule || row.isOff}
+                                onChange={e => updateCustomDay(activeDay.id, { end: e.target.value })}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="form-group" style={{ marginBottom: 8 }}>
+                            <label className="form-label" style={{ fontSize: 11 }}>Формат</label>
+                            <select
+                              className="form-select"
+                              value={row.mode || (row.isOff ? 'dayoff' : 'office')}
+                              disabled={hasPendingSchedule}
+                              onChange={e => {
+                                const mode = e.target.value;
+                                updateCustomDay(activeDay.id, { mode, isOff: mode === 'dayoff' });
+                              }}
+                            >
+                              <option value="office">Офис</option>
+                              <option value="online">Онлайн</option>
+                              <option value="dayoff">Выходной</option>
+                            </select>
+                          </div>
+
+                          <div className="schedule-editor-grid">
+                            <div>
+                              <label className="form-label" style={{ fontSize: 11 }}>Обед с</label>
+                              <input
+                                className="form-input"
+                                type="time"
+                                value={row.lunchStart || ''}
+                                disabled={hasPendingSchedule || row.isOff}
+                                onChange={e => updateCustomDay(activeDay.id, { lunchStart: e.target.value })}
+                              />
+                            </div>
+                            <div>
+                              <label className="form-label" style={{ fontSize: 11 }}>Обед до</label>
+                              <input
+                                className="form-input"
+                                type="time"
+                                value={row.lunchEnd || ''}
+                                disabled={hasPendingSchedule || row.isOff}
+                                onChange={e => updateCustomDay(activeDay.id, { lunchEnd: e.target.value })}
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <div style={{ fontSize: 11, color: 'var(--gray-600)' }}>Короткие перерывы</div>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              disabled={hasPendingSchedule || row.isOff}
+                              onClick={() => addCustomBreak(activeDay.id)}
+                            >
+                              + 15 мин
+                            </button>
+                          </div>
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            {(row.breaks || []).map((br, idx) => (
+                              <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6 }}>
+                                <input
+                                  className="form-input"
+                                  type="time"
+                                  value={br.start}
+                                  disabled={hasPendingSchedule || row.isOff}
+                                  onChange={e => updateCustomBreak(activeDay.id, idx, { start: e.target.value })}
+                                />
+                                <input
+                                  className="form-input"
+                                  type="time"
+                                  value={br.end}
+                                  disabled={hasPendingSchedule || row.isOff}
+                                  onChange={e => updateCustomBreak(activeDay.id, idx, { end: e.target.value })}
+                                />
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  disabled={hasPendingSchedule || row.isOff}
+                                  onClick={() => removeCustomBreak(activeDay.id, idx)}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                            {(!row.breaks || row.breaks.length === 0) && (
+                              <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>Нет коротких перерывов</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 10 }}>

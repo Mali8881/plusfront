@@ -41,3 +41,12 @@ export const promotionRequestsAPI = {
   approve: (id, data) => api.post(`/auth/promotion-requests/${id}/approve/`, data),
   reject: (id, data) => api.post(`/auth/promotion-requests/${id}/reject/`, data),
 };
+
+export const orgStructureAPI = {
+  list: (params) => api.get('/auth/org-units/', { params }),
+  tree: () => api.get('/auth/org-units/tree/'),
+  create: (data) => api.post('/auth/org-units/', data),
+  update: (id, data) => api.patch(`/auth/org-units/${id}/`, data),
+  delete: (id) => api.delete(`/auth/org-units/${id}/`),
+  seedLargeDemo: () => api.post('/auth/org-units/seed_large_demo/'),
+};

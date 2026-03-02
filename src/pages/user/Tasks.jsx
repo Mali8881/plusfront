@@ -56,9 +56,14 @@ function normalizeReport(raw) {
 
 export default function Tasks() {
   const { user } = useAuth();
-  const isManager = ['admin', 'superadmin', 'projectmanager'].includes(user?.role);
+  const role = user?.role;
+  const isManager = ['department_head', 'admin', 'superadmin', 'projectmanager'].includes(role);
+  const canSwitchTaskSections = !['employee', 'intern'].includes(role);
+  const canSeeOwnTasksSection = canSwitchTaskSections && role !== 'superadmin';
+  const canSeeTeamTasksSection = canSwitchTaskSections;
+  const [taskSection, setTaskSection] = useState(role === 'superadmin' ? 'team' : 'my');
   const canSubmitDaily = ['employee', 'projectmanager'].includes(user?.role);
-  const canViewDaily = ['admin', 'superadmin', 'projectmanager'].includes(user?.role);
+  const canViewDaily = ['department_head', 'admin', 'superadmin', 'projectmanager'].includes(user?.role);
 
   const [tasks, setTasks] = useState([]);
   const [reports, setReports] = useState([]);
@@ -89,17 +94,16 @@ export default function Tasks() {
     setError('');
     try {
       const [myRes, teamRes, reportsRes] = await Promise.all([
-        tasksAPI.my(),
-        isManager ? tasksAPI.team().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+        canSeeOwnTasksSection ? tasksAPI.my().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+        canSeeTeamTasksSection ? tasksAPI.team().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
         tasksAPI.dailyReports({ date: reportDate }).catch(() => ({ data: [] })),
       ]);
 
-      const merged = [
-        ...(Array.isArray(myRes.data) ? myRes.data : []),
-        ...(Array.isArray(teamRes.data) ? teamRes.data : []),
-      ];
+      const myTasks = Array.isArray(myRes.data) ? myRes.data : [];
+      const teamTasks = Array.isArray(teamRes.data) ? teamRes.data : [];
+      const selectedTasks = taskSection === 'team' ? teamTasks : myTasks;
       const byId = new Map();
-      merged.forEach((t) => byId.set(t.id, normalizeTask(t)));
+      selectedTasks.forEach((t) => byId.set(t.id, normalizeTask(t)));
       setTasks(Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)));
 
       const reportRows = Array.isArray(reportsRes.data) ? reportsRes.data : [];
@@ -133,6 +137,10 @@ export default function Tasks() {
   }, []);
 
   useEffect(() => {
+    setTaskSection(role === 'superadmin' ? 'team' : 'my');
+  }, [role]);
+
+  useEffect(() => {
     if (!showModal) return;
     setForm((prev) => ({
       ...prev,
@@ -142,7 +150,7 @@ export default function Tasks() {
 
   useEffect(() => {
     loadAll();
-  }, [reportDate]);
+  }, [reportDate, taskSection]);
 
   const columns = useMemo(() => {
     const map = new Map();
@@ -239,6 +247,29 @@ export default function Tasks() {
         <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Новая задача</button>
       </div>
 
+      {canSwitchTaskSections && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {canSeeOwnTasksSection && (
+            <button
+              type="button"
+              className={`btn btn-sm ${taskSection === 'my' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setTaskSection('my')}
+            >
+              Мои задачи
+            </button>
+          )}
+          {canSeeTeamTasksSection && (
+            <button
+              type="button"
+              className={`btn btn-sm ${taskSection === 'team' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setTaskSection('team')}
+            >
+              Задачи сотрудников
+            </button>
+          )}
+        </div>
+      )}
+
       {error ? <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div> : null}
 
       {loading ? (
@@ -279,7 +310,7 @@ export default function Tasks() {
             ))}
           </div>
 
-          {canSubmitDaily && (
+          {canSubmitDaily && (!canSwitchTaskSections || taskSection === 'my') && (
             <div className="card" style={{ marginTop: 16 }}>
               <div className="card-body" style={{ display: 'grid', gap: 10 }}>
                 <div style={{ fontWeight: 700 }}>Ежедневный отчет</div>
@@ -300,7 +331,7 @@ export default function Tasks() {
             </div>
           )}
 
-          {canViewDaily && (
+          {canViewDaily && canSwitchTaskSections && taskSection === 'team' && (
             <div className="card" style={{ marginTop: 16 }}>
               <div className="card-body">
                 <div style={{ fontWeight: 700, marginBottom: 10 }}>Отчеты сотрудников за {reportDate}</div>

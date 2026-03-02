@@ -57,7 +57,6 @@ const NAV_DEPARTMENT_HEAD = [
   { section: 'УПРАВЛЕНИЕ' },
   { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
-  { label: 'Контент', icon: FileText, path: '/admin/content' },
   { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
   { label: 'Обратная связь', icon: MessageSquare, path: '/admin/feedback' },
 ];

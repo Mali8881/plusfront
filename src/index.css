@@ -616,6 +616,63 @@ input, textarea, select { font-family: var(--font); }
 }
 .work-cell.off { color: var(--danger); background: var(--danger-light); }
 
+.weekly-plan-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  background: var(--gray-50);
+}
+.weekly-plan-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+}
+.weekly-plan-label {
+  font-size: 13px;
+  color: var(--gray-600);
+  font-weight: 500;
+}
+.weekly-plan-date {
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--gray-900);
+}
+.weekly-plan-hours {
+  color: var(--gray-600);
+  font-size: 13px;
+  margin-left: auto;
+}
+.weekly-plan-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+@media (max-width: 980px) {
+  .weekly-plan-toolbar {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .weekly-plan-hours {
+    margin-left: 0;
+    width: 100%;
+  }
+  .weekly-plan-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+}
+
 /* KB */
 .kb-article-card {
   background: var(--white);

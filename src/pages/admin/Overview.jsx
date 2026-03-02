@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import MainLayout from '../../layouts/MainLayout';
 import { usersAPI } from '../../api/auth';
 import { auditAPI, feedbackAPI, onboardingAPI } from '../../api/content';
@@ -27,7 +27,7 @@ export default function AdminOverview() {
         setFeedback(Array.isArray(feedbackRes.data) ? feedbackRes.data : []);
         setReports(Array.isArray(reportsRes.data) ? reportsRes.data : []);
       } catch (e) {
-        setError(e.response?.data?.detail || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ overview.');
+        setError(e.response?.data?.detail || 'Не удалось загрузить обзор.');
       } finally {
         setLoading(false);
       }
@@ -45,34 +45,34 @@ export default function AdminOverview() {
   }, [users, reports, feedback]);
 
   return (
-    <MainLayout title="РђРґРјРёРЅ-РїР°РЅРµР»СЊ">
+    <MainLayout title="Админ-панель">
       <div className="page-header">
         <div>
-          <div className="page-title">РћР±Р·РѕСЂ СЃРёСЃС‚РµРјС‹</div>
-          <div className="page-subtitle">РљР»СЋС‡РµРІС‹Рµ РїРѕРєР°Р·Р°С‚РµР»Рё Рё РїРѕСЃР»РµРґРЅРёРµ СЃРѕР±С‹С‚РёСЏ</div>
+          <div className="page-title">Обзор системы</div>
+          <div className="page-subtitle">Ключевые показатели и последние события</div>
         </div>
       </div>
 
       {error && <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: '#b91c1c' }}>{error}</div></div>}
-      {loading && <div className="card"><div className="card-body">Р—Р°РіСЂСѓР·РєР°...</div></div>}
+      {loading && <div className="card"><div className="card-body">Загрузка...</div></div>}
 
       {!loading && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))', gap: 12, marginBottom: 20 }}>
-            <Metric title="РџРѕР»СЊР·РѕРІР°С‚РµР»Рё" value={users.length} />
-            <Metric title="РђРєС‚РёРІРЅС‹Рµ" value={stats.activeUsers} />
-            <Metric title="РЎС‚Р°Р¶РµСЂС‹" value={stats.interns} />
-            <Metric title="РђРґРјРёРЅС‹" value={stats.admins} />
-            <Metric title="РћС‚С‡РµС‚С‹ SENT" value={stats.sentReports} />
+            <Metric title="Пользователи" value={users.length} />
+            <Metric title="Активные" value={stats.activeUsers} />
+            <Metric title="Стажеры" value={stats.interns} />
+            <Metric title="Админы" value={stats.admins} />
+            <Metric title="Отчеты SENT" value={stats.sentReports} />
           </div>
 
           <div className="grid-2" style={{ gap: 20 }}>
             <div className="card">
-              <div className="card-header"><span className="card-title">РџРѕСЃР»РµРґРЅРёРµ СЃРѕР±С‹С‚РёСЏ Р°СѓРґРёС‚Р°</span></div>
+              <div className="card-header"><span className="card-title">Последние события аудита</span></div>
               <div className="table-wrap">
                 <table className="table">
                   <thead>
-                    <tr><th>Р’Р Р•РњРЇ</th><th>ACTOR</th><th>ACTION</th><th>LEVEL</th></tr>
+                    <tr><th>Время</th><th>Actor</th><th>Action</th><th>Level</th></tr>
                   </thead>
                   <tbody>
                     {audit.slice(0, 10).map((row) => (
@@ -84,7 +84,7 @@ export default function AdminOverview() {
                       </tr>
                     ))}
                     {audit.length === 0 && (
-                      <tr><td colSpan={4}>РЎРѕР±С‹С‚РёР№ РїРѕРєР° РЅРµС‚.</td></tr>
+                      <tr><td colSpan={4}>Событий пока нет.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -92,11 +92,11 @@ export default function AdminOverview() {
             </div>
 
             <div className="card">
-              <div className="card-header"><span className="card-title">РћС‡РµСЂРµРґСЊ РѕР±СЂР°С‚РЅРѕР№ СЃРІСЏР·Рё</span></div>
+              <div className="card-header"><span className="card-title">Очередь обратной связи</span></div>
               <div className="table-wrap">
                 <table className="table">
                   <thead>
-                    <tr><th>ID</th><th>РўРРџ</th><th>РЎРўРђРўРЈРЎ</th><th>РЎРћР—Р”РђРќРћ</th></tr>
+                    <tr><th>ID</th><th>Тип</th><th>Статус</th><th>Создано</th></tr>
                   </thead>
                   <tbody>
                     {feedback.slice(0, 10).map((row) => (
@@ -108,13 +108,13 @@ export default function AdminOverview() {
                       </tr>
                     ))}
                     {feedback.length === 0 && (
-                      <tr><td colSpan={4}>РћР±СЂР°С‰РµРЅРёР№ РїРѕРєР° РЅРµС‚.</td></tr>
+                      <tr><td colSpan={4}>Обращений пока нет.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
               <div className="card-body" style={{ paddingTop: 0, color: 'var(--gray-500)', fontSize: 12 }}>
-                РќРѕРІС‹Рµ: {stats.newFeedback}
+                Новые: {stats.newFeedback}
               </div>
             </div>
           </div>
@@ -134,4 +134,3 @@ function Metric({ title, value }) {
     </div>
   );
 }
-

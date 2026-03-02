@@ -23,6 +23,7 @@ const EMPTY_FORM = {
   email: '',
   department: '',
   position: '',
+  manager: '',
   role: 'intern',
   password: '',
 };
@@ -44,6 +45,8 @@ function mapUser(raw) {
     departmentId: raw.department || null,
     position: raw.position_name || '',
     positionId: raw.position || null,
+    managerId: raw.manager || null,
+    managerName: raw.manager_name || '',
     status: raw.is_active ? 'active' : 'blocked',
   };
 }
@@ -63,6 +66,8 @@ export default function AdminUsers() {
 
   const isAdminOrSuper = isSuperAdmin || user?.role === 'admin' || user?.role === 'department_head';
   const canAssignAdminRoles = isSuperAdmin || user?.role === 'admin';
+  const isDepartmentHead = user?.role === 'department_head';
+  const ownDepartmentId = user?.department ? String(user.department) : '';
 
   const loadAll = async () => {
     setLoading(true);
@@ -119,6 +124,7 @@ export default function AdminUsers() {
       email: target.email,
       department: target.departmentId || '',
       position: target.positionId || '',
+      manager: target.managerId || '',
       role: target.role || 'intern',
       password: '',
     });
@@ -128,13 +134,19 @@ export default function AdminUsers() {
   const saveUser = async () => {
     if (!form.name || !form.email) return;
     const name = splitName(form.name);
+    let departmentPayload = form.department || null;
+    if (isDepartmentHead) {
+      if (form.role === 'intern') departmentPayload = null;
+      else if (form.role === 'employee' || form.role === 'projectmanager') departmentPayload = ownDepartmentId || null;
+    }
     const payload = {
       username: form.email,
       email: form.email,
       first_name: name.first_name,
       last_name: name.last_name,
-      department: form.department || null,
+      department: departmentPayload,
       position: form.position || null,
+      manager: form.role === 'projectmanager' ? null : (form.manager || null),
       role: form.role,
     };
     if (form.password) payload.password = form.password;
@@ -187,6 +199,17 @@ export default function AdminUsers() {
       setError('Не удалось отклонить заявку.');
     }
   };
+
+  const managerOptions = useMemo(() => {
+    const effectiveDepartment = isDepartmentHead
+      ? ((form.role === 'employee' || form.role === 'projectmanager') ? ownDepartmentId : '')
+      : form.department;
+    return users.filter((u) => {
+      if (u.role !== 'projectmanager') return false;
+      if (!effectiveDepartment) return true;
+      return Number(u.departmentId) === Number(effectiveDepartment);
+    });
+  }, [users, form.department, form.role, isDepartmentHead, ownDepartmentId]);
 
   return (
     <MainLayout title="Админ-панель · Пользователи">
@@ -311,7 +334,16 @@ export default function AdminUsers() {
               <div className="grid-2" style={{ marginTop: 10 }}>
                 <div className="form-group">
                   <label className="form-label">Отдел</label>
-                  <select className="form-select" value={form.department} onChange={(e) => setForm((prev) => ({ ...prev, department: e.target.value }))}>
+                  <select
+                    className="form-select"
+                    value={
+                      isDepartmentHead
+                        ? ((form.role === 'employee' || form.role === 'projectmanager') ? ownDepartmentId : '')
+                        : form.department
+                    }
+                    onChange={(e) => setForm((prev) => ({ ...prev, department: e.target.value }))}
+                    disabled={isDepartmentHead}
+                  >
                     <option value="">-</option>
                     {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
@@ -327,7 +359,14 @@ export default function AdminUsers() {
               <div className="grid-2" style={{ marginTop: 10 }}>
                 <div className="form-group">
                   <label className="form-label">Роль</label>
-                  <select className="form-select" value={form.role} onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value }))}>
+                  <select
+                    className="form-select"
+                    value={form.role}
+                    onChange={(e) => {
+                      const nextRole = e.target.value;
+                      setForm((prev) => ({ ...prev, role: nextRole, manager: nextRole === 'projectmanager' ? '' : prev.manager }));
+                    }}
+                  >
                     <option value="intern">Стажер</option>
                     <option value="employee">Сотрудник</option>
                     <option value="projectmanager">Тимлид</option>
@@ -339,6 +378,30 @@ export default function AdminUsers() {
                 <div className="form-group">
                   <label className="form-label">Пароль {editUser ? '(опционально)' : ''}</label>
                   <input className="form-input" type="password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid-2" style={{ marginTop: 10 }}>
+                <div className="form-group">
+                  <label className="form-label">Руководитель (Тимлид)</label>
+                  <select
+                    className="form-select"
+                    value={form.manager}
+                    onChange={(e) => setForm((prev) => ({ ...prev, manager: e.target.value }))}
+                    disabled={form.role === 'projectmanager'}
+                  >
+                    <option value="">-</option>
+                    {managerOptions.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Текущий руководитель</label>
+                  <input
+                    className="form-input"
+                    value={editUser?.managerName || '-'}
+                    disabled
+                  />
                 </div>
               </div>
             </div>

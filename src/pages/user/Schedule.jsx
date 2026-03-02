@@ -50,6 +50,12 @@ function parseIsoDate(value) {
   return parsed;
 }
 
+function formatWeekStartLabel(value) {
+  const parsed = parseIsoDate(value);
+  if (!parsed) return value || '—';
+  return parsed.toLocaleDateString('ru-RU');
+}
+
 function shortTime(value) {
   if (!value) return '—';
   return String(value).slice(0, 5);
@@ -411,28 +417,29 @@ export default function Schedule() {
             <div className="card">
               <div className="card-header"><span className="card-title">Недельный план работы</span></div>
               <div className="card-body">
-                <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 12, marginBottom: 10 }}>
-                  <div>
-                    <label className="form-label">Неделя (понедельник)</label>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        type="button"
-                        onClick={() => setWeekStart((prev) => shiftWeek(prev, -1, weeklyPlans))}
-                      >
-                        Предыдущая неделя
-                      </button>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        type="button"
-                        onClick={() => setWeekStart((prev) => shiftWeek(prev, 1, weeklyPlans))}
-                      >
-                        Следующая неделя
-                      </button>
-                    </div>
+                <div className="weekly-plan-toolbar">
+                  <div className="weekly-plan-meta">
+                    <div className="weekly-plan-label">Неделя (понедельник)</div>
+                    <div className="weekly-plan-date">{formatWeekStartLabel(weekStart)}</div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'end', color: 'var(--gray-600)', fontSize: 13 }}>
+                  <div className="weekly-plan-hours">
                     Офис: {officeHours} ч · Онлайн: {onlineHours} ч
+                  </div>
+                  <div className="weekly-plan-actions">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      type="button"
+                      onClick={() => setWeekStart((prev) => shiftWeek(prev, -1, weeklyPlans))}
+                    >
+                      Предыдущая неделя
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      type="button"
+                      onClick={() => setWeekStart((prev) => shiftWeek(prev, 1, weeklyPlans))}
+                    >
+                      Следующая неделя
+                    </button>
                   </div>
                 </div>
 

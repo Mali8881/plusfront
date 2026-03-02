@@ -38,6 +38,13 @@ function isoDate(date) {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeWeekFilter(value) {
+  if (!value) return isoDate(mondayOf());
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return isoDate(mondayOf());
+  return isoDate(mondayOf(parsed));
+}
+
 function formatDate(date) {
   return new Date(date).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
@@ -50,6 +57,13 @@ function formatDateTime(value) {
 function shortTime(value) {
   if (!value) return '—';
   return String(value).slice(0, 5);
+}
+
+function shiftWeekFilter(weekStartValue, deltaWeeks) {
+  const current = new Date(`${weekStartValue}T00:00:00`);
+  const safeCurrent = Number.isNaN(current.getTime()) ? mondayOf(new Date()) : mondayOf(current);
+  safeCurrent.setDate(safeCurrent.getDate() + deltaWeeks * 7);
+  return isoDate(safeCurrent);
 }
 
 export default function AdminSchedules() {
@@ -102,14 +116,19 @@ export default function AdminSchedules() {
   const pendingRequests = useMemo(() => requests.filter((r) => !r.approved), [requests]);
 
   const plansForWeek = useMemo(() => {
-    return weeklyPlans.filter((p) => String(p.week_start) === String(weekFilter));
+    const normalizedWeek = normalizeWeekFilter(weekFilter);
+    return weeklyPlans.filter((p) => {
+      const status = String(p.status || '').toLowerCase();
+      const isApproved = status === 'approved';
+      if (!isApproved) return true;
+      return String(p.week_start) === String(normalizedWeek);
+    });
   }, [weeklyPlans, weekFilter]);
 
   const boardColumns = useMemo(() => {
     const cols = DAY_LABELS.map((label, idx) => ({ label, index: idx, entries: [] }));
-    const coveredByWeeklyPlan = new Set();
 
-    // 1) Approved weekly plans (priority source)
+    // Approved weekly plans (including synthetic template-based plans from API).
     plansForWeek
       .filter((p) => p.status === 'approved')
       .forEach((plan) => {
@@ -119,8 +138,6 @@ export default function AdminSchedules() {
           const date = day.date ? new Date(`${day.date}T00:00:00`) : null;
           if (!date) return;
           const idx = date.getDay() === 0 ? 6 : date.getDay() - 1;
-          const dateIso = day.date;
-          coveredByWeeklyPlan.add(`${userId}:${dateIso}`);
           if (day.mode === 'day_off') return;
           cols[idx].entries.push({
             id: `${plan.id}-${day.date}`,
@@ -132,37 +149,8 @@ export default function AdminSchedules() {
         });
       });
 
-    // 2) Approved schedule assignments (fallback source when no weekly plan for a day)
-    const weekStartDate = new Date(`${weekFilter}T00:00:00`);
-    const templateById = new Map(templates.map((t) => [Number(t.id), t]));
-    requests
-      .filter((r) => r.approved)
-      .forEach((assignment) => {
-        const userId = Number(assignment.user);
-        const template = templateById.get(Number(assignment.schedule));
-        if (!template) return;
-        const workDays = Array.isArray(template.work_days) ? template.work_days : [];
-        const name = usersMap.get(userId)?.full_name || usersMap.get(userId)?.username || `#${assignment.user}`;
-
-        for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
-          if (!workDays.includes(dayOffset)) continue;
-          const date = new Date(weekStartDate);
-          date.setDate(weekStartDate.getDate() + dayOffset);
-          const dateIso = isoDate(date);
-          if (coveredByWeeklyPlan.has(`${userId}:${dateIso}`)) continue;
-
-          cols[dayOffset].entries.push({
-            id: `assignment-${assignment.id}-${dateIso}`,
-            user: name,
-            from: shortTime(template.start_time),
-            to: shortTime(template.end_time),
-            mode: 'офис',
-          });
-        }
-      });
-
     return cols;
-  }, [plansForWeek, usersMap, requests, templates, weekFilter]);
+  }, [plansForWeek, usersMap]);
 
   const saveTemplate = async () => {
     if (!templateForm.name.trim()) return;
@@ -437,7 +425,23 @@ export default function AdminSchedules() {
               <div className="card-header" style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
                 <div>
                   <label className="form-label">Неделя (понедельник)</label>
-                  <input className="form-input" type="date" value={weekFilter} onChange={(e) => setWeekFilter(e.target.value)} />
+                  <input className="form-input" type="date" value={weekFilter} onChange={(e) => setWeekFilter(normalizeWeekFilter(e.target.value))} />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => setWeekFilter((prev) => shiftWeekFilter(prev, -1))}
+                  >
+                    Предыдущая неделя
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => setWeekFilter((prev) => shiftWeekFilter(prev, 1))}
+                  >
+                    Следующая неделя
+                  </button>
                 </div>
                 <div style={{ flex: 1 }}>
                   <label className="form-label">Комментарий администратора</label>
@@ -482,9 +486,27 @@ export default function AdminSchedules() {
               <div className="card-header" style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
                 <div>
                   <label className="form-label">Неделя (понедельник)</label>
-                  <input className="form-input" type="date" value={weekFilter} onChange={(e) => setWeekFilter(e.target.value)} />
+                  <input className="form-input" type="date" value={weekFilter} onChange={(e) => setWeekFilter(normalizeWeekFilter(e.target.value))} />
                 </div>
-                <div style={{ color: 'var(--gray-500)', fontSize: 13 }}>Показываются только утвержденные реальные смены сотрудников</div>
+                <div style={{ color: 'var(--gray-500)', fontSize: 13, marginLeft: 'auto' }}>
+                  Показываются только утвержденные реальные смены сотрудников
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => setWeekFilter((prev) => shiftWeekFilter(prev, -1))}
+                  >
+                    Предыдущая неделя
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => setWeekFilter((prev) => shiftWeekFilter(prev, 1))}
+                  >
+                    Следующая неделя
+                  </button>
+                </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(170px, 1fr))', borderTop: '1px solid var(--gray-200)', overflowX: 'auto' }}>
                 {boardColumns.map((col, idx) => (

@@ -44,6 +44,15 @@ function AdminRoute({ children }) {
   return children;
 }
 
+function ContentManageRoute({ children }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'admin' && user.role !== 'superadmin') {
+    return <Navigate to="/admin/overview" replace />;
+  }
+  return children;
+}
+
 function SuperAdminRoute({ children }) {
   const { user, isSuperAdmin } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
@@ -129,7 +138,7 @@ function AppRoutes() {
       <Route path="/admin/overview"   element={<AdminRoute><AdminOverview /></AdminRoute>} />
       <Route path="/admin/users"      element={<AdminRoute><AdminUsers /></AdminRoute>} />
       <Route path="/admin/roles"      element={<AdminRoute><AdminRoles /></AdminRoute>} />
-      <Route path="/admin/content"    element={<AdminRoute><AdminContent /></AdminRoute>} />
+      <Route path="/admin/content"    element={<ContentManageRoute><AdminContent /></ContentManageRoute>} />
       <Route path="/admin/onboarding" element={<OnboardingManageRoute><AdminOnboarding /></OnboardingManageRoute>} />
       <Route path="/admin/schedules"  element={<AdminRoute><AdminSchedules /></AdminRoute>} />
       <Route path="/admin/feedback"   element={<AdminRoute><AdminFeedback /></AdminRoute>} />

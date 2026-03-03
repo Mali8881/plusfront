@@ -100,6 +100,15 @@ function parseDateTimeLocal(dateIso, hhmm) {
   return d;
 }
 
+function formatDelay(minutes) {
+  const safe = Math.max(0, Number(minutes) || 0);
+  const h = Math.floor(safe / 60);
+  const m = safe % 60;
+  if (h > 0 && m > 0) return `${h} ч ${m} мин`;
+  if (h > 0) return `${h} ч`;
+  return `${m} мин`;
+}
+
 export default function AdminSchedules() {
   const { user } = useAuth();
   const [tab, setTab] = useState('templates');
@@ -212,7 +221,7 @@ export default function AdminSchedules() {
     const cols = DAY_LABELS.map((label, idx) => ({ label, index: idx, entries: [] }));
     const marksMap = new Map();
     teamAttendanceMarks.forEach((item) => {
-      marksMap.set(makeAttendanceKey(item.user, item.date), String(item.status || '').toLowerCase());
+      marksMap.set(makeAttendanceKey(item.user, item.date), item);
     });
     const now = new Date();
 
@@ -228,17 +237,30 @@ export default function AdminSchedules() {
           const idx = date.getDay() === 0 ? 6 : date.getDay() - 1;
           if (day.mode === 'day_off') return;
           const dateIso = String(day.date);
-          const markStatus = marksMap.get(makeAttendanceKey(userId, dateIso)) || '';
+          const mark = marksMap.get(makeAttendanceKey(userId, dateIso)) || null;
+          const markStatus = String(mark?.status || '').toLowerCase();
           const shiftStart = parseDateTimeLocal(dateIso, shortTime(day.start_time));
           const lateThreshold = shiftStart ? new Date(shiftStart.getTime() + 30 * 60000) : null;
+          const markTime = mark?.created_at ? new Date(mark.created_at) : null;
           const marked = !!markStatus;
           const isOnlineMark = markStatus === 'remote';
           let attendanceTone = 'gray';
+          let lateLabel = '';
           if (marked && isOnlineMark) {
             attendanceTone = 'blue';
           } else if (marked) {
             attendanceTone = 'green';
-          } else if (lateThreshold && now > lateThreshold) {
+          }
+          if (shiftStart && markTime && markTime > shiftStart) {
+            const lateMinutes = Math.round((markTime.getTime() - shiftStart.getTime()) / 60000);
+            if (lateMinutes > 0) {
+              lateLabel = `Опоздание: ${formatDelay(lateMinutes)}`;
+            }
+          } else if (!marked && shiftStart && now > shiftStart) {
+            const lateMinutes = Math.round((now.getTime() - shiftStart.getTime()) / 60000);
+            lateLabel = `Нет отметки, опоздание: ${formatDelay(lateMinutes)}`;
+          }
+          if (!marked && lateThreshold && now > lateThreshold) {
             attendanceTone = 'red';
           }
           cols[idx].entries.push({
@@ -248,6 +270,7 @@ export default function AdminSchedules() {
             to: shortTime(day.end_time),
             mode: day.mode === 'online' ? 'онлайн' : 'офис',
             attendanceTone,
+            lateLabel,
           });
         });
       });
@@ -619,7 +642,7 @@ export default function AdminSchedules() {
                 </div>
               </div>
               <div style={{ padding: '8px 20px 0', fontSize: 12, color: 'var(--gray-600)' }}>
-                Серый: не началась смена или нет отметки · Красный: нет отметки через 30 минут после начала · Зеленый: отмечен в офисе · Синий: отмечен онлайн
+                Серый: не началась смена/нет отметки · Красный: нет отметки через 30+ минут · Зеленый: отмечен в офисе · Синий: отмечен онлайн
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(170px, 1fr))', borderTop: '1px solid var(--gray-200)', overflowX: 'auto' }}>
                 {boardColumns.map((col, idx) => (
@@ -635,6 +658,7 @@ export default function AdminSchedules() {
                           <div className="schedule-entry-user">{entry.user}</div>
                           <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Время: {entry.from} - {entry.to}</div>
                           <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Формат: {entry.mode}</div>
+                          {entry.lateLabel ? <div style={{ fontSize: 12, color: '#991b1b' }}>{entry.lateLabel}</div> : null}
                         </div>
                       ))}
                     </div>

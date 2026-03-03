@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { CheckCircle, Circle, Download, ExternalLink, Send, X } from 'lucide-react';
+import { CheckCircle, Circle, Download, ExternalLink, Maximize2, Send, X } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import api from '../../api/axios';
 import { onboardingAPI, regulationsAPI } from '../../api/content';
@@ -33,6 +33,19 @@ const toAbsoluteMedia = (url) => {
 
 const findReportByDay = (reports, dayId) => reports.find((r) => String(r.day_id) === String(dayId)) || null;
 
+function parseQuizQuestion(rawQuestion) {
+  const lines = String(rawQuestion || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const options = lines
+    .filter((line) => /^[-*]\s+/.test(line))
+    .map((line) => line.replace(/^[-*]\s+/, '').trim())
+    .filter(Boolean);
+  const question = lines.filter((line) => !/^[-*]\s+/.test(line)).join(' ').trim();
+  return { question, options };
+}
+
 export default function Onboarding() {
   const location = useLocation();
   const [tab, setTab] = useState('onboarding');
@@ -48,12 +61,15 @@ export default function Onboarding() {
     report_title: '',
     report_description: '',
     github_url: '',
+    attachment: '',
   });
   const [feedbackDrafts, setFeedbackDrafts] = useState({});
   const [quizDrafts, setQuizDrafts] = useState({});
   const [stepView, setStepView] = useState({});
   const [activeRegIndex, setActiveRegIndex] = useState(0);
   const [selectedRegulation, setSelectedRegulation] = useState(null);
+  const [selectedRegulationBlobUrl, setSelectedRegulationBlobUrl] = useState('');
+  const [reportAttachment, setReportAttachment] = useState(null);
   const [internRoleState, setInternRoleState] = useState(null);
   const [pendingRoleId, setPendingRoleId] = useState(null);
   const [busyMap, setBusyMap] = useState({});
@@ -190,11 +206,27 @@ export default function Onboarding() {
       report_title: report?.report_title || '',
       report_description: report?.report_description || '',
       github_url: report?.github_url || '',
+      attachment: report?.attachment || '',
     });
+    setReportAttachment(null);
   }, [activeDay, reports]);
+
+  useEffect(() => () => {
+    if (selectedRegulationBlobUrl) {
+      window.URL.revokeObjectURL(selectedRegulationBlobUrl);
+    }
+  }, [selectedRegulationBlobUrl]);
 
   const markBusy = (key, value) => {
     setBusyMap((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const closeRegulationModal = () => {
+    setSelectedRegulation(null);
+    if (selectedRegulationBlobUrl) {
+      window.URL.revokeObjectURL(selectedRegulationBlobUrl);
+      setSelectedRegulationBlobUrl('');
+    }
   };
 
   const completeCurrentDay = async () => {
@@ -264,9 +296,19 @@ export default function Onboarding() {
     setSubmitting(true);
     setError('');
     try {
-      const payload = { day_id: activeDay.id, ...reportData };
+      const payload = new FormData();
+      payload.append('day_id', activeDay.id);
+      payload.append('did', reportData.did || '');
+      payload.append('will_do', reportData.will_do || '');
+      payload.append('problems', reportData.problems || '');
+      payload.append('report_title', reportData.report_title || '');
+      payload.append('report_description', reportData.report_description || '');
+      payload.append('github_url', reportData.github_url || '');
+      if (reportAttachment) {
+        payload.append('attachment', reportAttachment);
+      }
       if (activeReport?.id) {
-        await onboardingAPI.updateReport(activeReport.id, reportData);
+        await onboardingAPI.updateReport(activeReport.id, payload);
       } else {
         await onboardingAPI.submitReport(payload);
       }
@@ -314,9 +356,20 @@ export default function Onboarding() {
     }
   };
 
-  const submitRegulationQuiz = async (regulationId) => {
-    const answer = String(quizDrafts[regulationId] || '').trim();
-    if (!answer) {
+  const submitRegulationQuiz = async (regulation) => {
+    const regulationId = regulation?.id;
+    if (!regulationId) return;
+    const quizQuestions = Array.isArray(regulation.quiz_questions) ? regulation.quiz_questions : [];
+    const draft = quizDrafts[regulationId];
+    const answers = quizQuestions.length > 0
+      ? quizQuestions.map((_, idx) => String(draft?.[idx] || '').trim())
+      : [];
+    const answer = quizQuestions.length > 0 ? '' : String(draft || '').trim();
+    if (quizQuestions.length > 0 && answers.some((item) => !item)) {
+      setError('Ответьте на все вопросы теста.');
+      return;
+    }
+    if (quizQuestions.length === 0 && !answer) {
       setError('Введите ответ на вопрос по регламенту.');
       return;
     }
@@ -324,17 +377,47 @@ export default function Onboarding() {
     markBusy(`quiz-${regulationId}`, true);
     setError('');
     try {
-      const res = await regulationsAPI.submitQuiz(regulationId, { answer });
+      const payload = quizQuestions.length > 0 ? { answers } : { answer };
+      const res = await regulationsAPI.submitQuiz(regulationId, payload);
       if (!res.data?.is_passed) {
         setError(res.data?.detail || 'Ответ не принят. Попробуйте еще раз.');
+        if (res.data?.restart_required) {
+          setStepView((prev) => ({ ...prev, [regulationId]: 1 }));
+        }
       } else {
-        setQuizDrafts((prev) => ({ ...prev, [regulationId]: '' }));
+        setQuizDrafts((prev) => ({ ...prev, [regulationId]: quizQuestions.length > 0 ? {} : '' }));
       }
       await loadDayDetail(activeDayId, true);
     } catch (e) {
       setError(e.response?.data?.detail || 'Не удалось отправить тест по регламенту.');
     } finally {
       markBusy(`quiz-${regulationId}`, false);
+    }
+  };
+
+  const openRegulationPreview = async (regulation) => {
+    if (!regulation) return;
+    if (regulation.type === 'link' && regulation.content) {
+      setSelectedRegulationBlobUrl('');
+      setSelectedRegulation(regulation);
+      return;
+    }
+    markBusy(`preview-${regulation.id}`, true);
+    setError('');
+    try {
+      const res = await api.get(`/v1/regulations/${regulation.id}/view/`, {
+        responseType: 'blob',
+      });
+      if (selectedRegulationBlobUrl) {
+        window.URL.revokeObjectURL(selectedRegulationBlobUrl);
+      }
+      const blobUrl = window.URL.createObjectURL(res.data);
+      setSelectedRegulationBlobUrl(blobUrl);
+      setSelectedRegulation(regulation);
+    } catch {
+      setError('Не удалось открыть регламент. Попробуйте скачать файл.');
+    } finally {
+      markBusy(`preview-${regulation.id}`, false);
     }
   };
 
@@ -640,14 +723,17 @@ export default function Onboarding() {
                         const regulationUrl = toAbsoluteMedia(regulation.content);
                         const isRead = !!regulation.is_read;
                         const hasFeedback = !!regulation.has_feedback;
+                        const requiresQuiz = regulation.requires_quiz !== false;
                         const hasPassedQuiz = !!regulation.has_passed_quiz;
+                        const { question: parsedQuizQuestion, options: quizOptions } = parseQuizQuestion(regulation.quiz_question);
+                        const quizQuestions = Array.isArray(regulation.quiz_questions) ? regulation.quiz_questions : [];
                         const currentStep = stepView[regulation.id] || 1;
                         const previousRegulationsDone = index === 0 || regulations
                           .slice(0, index)
                           .every((item) => item.is_read && item.has_feedback && item.has_passed_quiz);
                         const canDoStep1 = previousRegulationsDone;
                         const canDoStep2 = previousRegulationsDone && isRead;
-                        const canDoStep3 = previousRegulationsDone && hasFeedback;
+                        const canDoStep3 = previousRegulationsDone && hasFeedback && requiresQuiz;
                         const goToStep = (step) => setStepView((prev) => ({ ...prev, [regulation.id]: step }));
                         return (
                           <div
@@ -666,10 +752,11 @@ export default function Onboarding() {
                                 <div style={{ display: 'flex', gap: 8 }}>
                                   <button
                                     className="btn btn-outline"
-                                    onClick={() => setSelectedRegulation(regulation)}
+                                    onClick={() => openRegulationPreview(regulation)}
+                                    disabled={!!busyMap[`preview-${regulation.id}`]}
                                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                                   >
-                                    <ExternalLink size={14} /> Подробнее
+                                    <ExternalLink size={14} /> {busyMap[`preview-${regulation.id}`] ? 'Открываем...' : 'Подробнее'}
                                   </button>
                                   <button
                                     className="btn btn-secondary"
@@ -732,8 +819,8 @@ export default function Onboarding() {
                                     >
                                       {hasFeedback ? 'Фидбек отправлен' : 'Отправить фидбек'}
                                     </button>
-                                    {hasFeedback && (
-                                      <button className="btn btn-primary" style={{ marginLeft: 8 }} onClick={() => goToStep(3)}>
+                                    {hasFeedback && requiresQuiz && (
+                                      <button className="btn btn-primary" style={{ marginLeft: 8 }} onClick={() => goToStep(requiresQuiz ? 3 : 2)}>
                                         Дальше
                                       </button>
                                     )}
@@ -741,25 +828,78 @@ export default function Onboarding() {
                                 </div>
                               )}
 
-                              {currentStep === 3 && (
+                              {requiresQuiz && currentStep === 3 && (
                                 <div className="card" style={{ border: '1px solid var(--gray-200)' }}>
                                   <div className="card-body" style={{ padding: 12 }}>
                                     <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Шаг 3. Тест на знание</div>
-                                    <div style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 6 }}>
-                                      {regulation.quiz_question || 'Подтвердите знание регламента в свободной форме.'}
-                                    </div>
-                                    <input
-                                      className="form-input"
-                                      placeholder="Введите ответ"
-                                      value={quizDrafts[regulation.id] || ''}
-                                      onChange={(e) => setQuizDrafts((prev) => ({ ...prev, [regulation.id]: e.target.value }))}
-                                      disabled={!canDoStep3 || hasPassedQuiz}
-                                      style={{ marginBottom: 8 }}
-                                    />
+                                    {quizQuestions.length > 0 ? (
+                                      <div style={{ display: 'grid', gap: 10, marginBottom: 10 }}>
+                                        {quizQuestions.map((item, qIndex) => (
+                                          <div key={`${regulation.id}-q-${qIndex}`} style={{ border: '1px solid var(--gray-200)', borderRadius: 8, padding: 8 }}>
+                                            <div style={{ fontSize: 13, color: 'var(--gray-700)', marginBottom: 6 }}>
+                                              {qIndex + 1}. {item.question}
+                                            </div>
+                                            <div style={{ display: 'grid', gap: 6 }}>
+                                              {(item.options || []).map((opt) => (
+                                                <label key={`${regulation.id}-${qIndex}-${opt}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                  <input
+                                                    type="radio"
+                                                    name={`quiz-${regulation.id}-${qIndex}`}
+                                                    checked={String(quizDrafts[regulation.id]?.[qIndex] || '') === String(opt)}
+                                                    onChange={() =>
+                                                      setQuizDrafts((prev) => ({
+                                                        ...prev,
+                                                        [regulation.id]: { ...(prev[regulation.id] || {}), [qIndex]: opt },
+                                                      }))
+                                                    }
+                                                    disabled={!canDoStep3 || hasPassedQuiz}
+                                                  />
+                                                  <span style={{ fontSize: 13 }}>{opt}</span>
+                                                </label>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : quizOptions.length >= 2 ? (
+                                      <>
+                                        <div style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 6 }}>
+                                          {parsedQuizQuestion || 'Подтвердите знание регламента в свободной форме.'}
+                                        </div>
+                                      <div style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
+                                        {quizOptions.map((opt) => (
+                                          <label key={`${regulation.id}-${opt}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <input
+                                              type="radio"
+                                              name={`quiz-${regulation.id}`}
+                                              checked={String(quizDrafts[regulation.id] || '') === String(opt)}
+                                              onChange={() => setQuizDrafts((prev) => ({ ...prev, [regulation.id]: opt }))}
+                                              disabled={!canDoStep3 || hasPassedQuiz}
+                                            />
+                                            <span style={{ fontSize: 13 }}>{opt}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 6 }}>
+                                          {parsedQuizQuestion || 'Подтвердите знание регламента в свободной форме.'}
+                                        </div>
+                                        <input
+                                          className="form-input"
+                                          placeholder="Введите ответ"
+                                          value={quizDrafts[regulation.id] || ''}
+                                          onChange={(e) => setQuizDrafts((prev) => ({ ...prev, [regulation.id]: e.target.value }))}
+                                          disabled={!canDoStep3 || hasPassedQuiz}
+                                          style={{ marginBottom: 8 }}
+                                        />
+                                      </>
+                                    )}
                                     <button
                                       className="btn btn-secondary"
                                       disabled={!canDoStep3 || hasPassedQuiz || !!busyMap[`quiz-${regulation.id}`]}
-                                      onClick={() => submitRegulationQuiz(regulation.id)}
+                                      onClick={() => submitRegulationQuiz(regulation)}
                                     >
                                       {hasPassedQuiz ? 'Тест пройден' : 'Отправить ответ'}
                                     </button>
@@ -776,7 +916,7 @@ export default function Onboarding() {
                                 {hasFeedback ? <CheckCircle size={14} color="#16A34A" /> : <Circle size={14} color="#9CA3AF" />} Фидбек
                               </span>
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                {hasPassedQuiz ? <CheckCircle size={14} color="#16A34A" /> : <Circle size={14} color="#9CA3AF" />} Тест
+                                {hasPassedQuiz ? <CheckCircle size={14} color="#16A34A" /> : <Circle size={14} color="#9CA3AF" />} {requiresQuiz ? 'Тест' : 'Без теста'}
                               </span>
                             </div>
 
@@ -911,6 +1051,20 @@ export default function Onboarding() {
                 </>
               )}
 
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label className="form-label">Вложение (необязательно)</label>
+                <input
+                  className="form-input"
+                  type="file"
+                  onChange={(e) => setReportAttachment(e.target.files?.[0] || null)}
+                />
+                {reportData.attachment ? (
+                  <div style={{ marginTop: 6, fontSize: 12 }}>
+                    Текущее вложение: <a href={toAbsoluteMedia(reportData.attachment)} target="_blank" rel="noreferrer">Открыть файл</a>
+                  </div>
+                ) : null}
+              </div>
+
               <button
                 className="btn btn-primary"
                 disabled={submitting || (isDayTwo && !selectedInternRoleId)}
@@ -923,31 +1077,48 @@ export default function Onboarding() {
           )}
 
           {selectedRegulation && (
-            <div className="modal-overlay" onClick={() => setSelectedRegulation(null)}>
-              <div className="modal" style={{ maxWidth: 980, width: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-overlay" onClick={closeRegulationModal}>
+              <div className="modal" style={{ width: 'calc(100vw - 24px)', height: 'calc(100vh - 24px)', maxWidth: 'unset', maxHeight: 'unset' }} onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header">
                   <div className="modal-title">{selectedRegulation.title}</div>
-                  <button className="btn-icon" type="button" onClick={() => setSelectedRegulation(null)}><X size={18} /></button>
+                  <button className="btn-icon" type="button" onClick={closeRegulationModal}><X size={18} /></button>
                 </div>
                 <div className="modal-body">
-                  <div
-                    style={{
-                      maxHeight: '65vh',
-                      overflowY: 'auto',
-                      border: '1px solid var(--gray-200)',
-                      borderRadius: 8,
-                      background: '#fff',
-                      padding: 12,
-                      whiteSpace: 'pre-wrap',
-                      lineHeight: 1.55,
-                      fontSize: 13,
-                      color: 'var(--gray-800)',
-                    }}
-                  >
-                    {String(selectedRegulation.description || '').trim() || 'Текст регламента пока недоступен.'}
-                  </div>
+                  {(selectedRegulation.type === 'link' && selectedRegulation.content) || selectedRegulationBlobUrl ? (
+                    <iframe
+                      title={`regulation-${selectedRegulation.id}`}
+                      src={selectedRegulation.type === 'link' ? selectedRegulation.content : selectedRegulationBlobUrl}
+                      style={{ width: '100%', height: 'calc(100vh - 170px)', border: '1px solid var(--gray-200)', borderRadius: 8, background: '#fff' }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        maxHeight: '65vh',
+                        overflowY: 'auto',
+                        border: '1px solid var(--gray-200)',
+                        borderRadius: 8,
+                        background: '#fff',
+                        padding: 12,
+                        whiteSpace: 'pre-wrap',
+                        lineHeight: 1.55,
+                        fontSize: 13,
+                        color: 'var(--gray-800)',
+                      }}
+                    >
+                      {String(selectedRegulation.description || '').trim() || 'Текст регламента пока недоступен.'}
+                    </div>
+                  )}
                 </div>
                 <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
+                  {(selectedRegulation.type === 'link' && selectedRegulation.content) || selectedRegulationBlobUrl ? (
+                    <button
+                      className="btn btn-outline"
+                      onClick={() => window.open(selectedRegulation.type === 'link' ? selectedRegulation.content : selectedRegulationBlobUrl, '_blank', 'noopener,noreferrer')}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <Maximize2 size={14} /> На весь экран
+                    </button>
+                  ) : null}
                   <button
                     className="btn btn-secondary"
                     onClick={() => downloadRegulation(selectedRegulation)}
@@ -965,3 +1136,6 @@ export default function Onboarding() {
     </MainLayout>
   );
 }
+
+
+

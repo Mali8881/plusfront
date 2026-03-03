@@ -396,6 +396,7 @@ export default function Schedule() {
   const selectedDay = days[selectedDayIndex] || null;
   const selectedDayTitle = DAY_FULL_LABELS[selectedDayIndex] || '';
   const selectedIsWorkday = !!selectedDay && selectedDay.mode !== 'day_off';
+  const selectedSupportsBreaks = !!selectedDay && (selectedDay.mode === 'office' || selectedDay.mode === 'online');
 
   const submitWeeklyPlan = async () => {
     const invalid = days.find((d) => d.mode !== 'day_off' && (!d.start_time || !d.end_time || !d.start_time.endsWith(':00') || !d.end_time.endsWith(':00')));
@@ -417,13 +418,13 @@ export default function Schedule() {
           start_time: d.mode === 'day_off' ? null : d.start_time,
           end_time: d.mode === 'day_off' ? null : d.end_time,
           comment: d.comment || '',
-          breaks: d.mode === 'office'
+          breaks: (d.mode === 'office' || d.mode === 'online')
             ? d.breaks
               .filter((b) => b.start_time && b.end_time)
               .map((b) => ({ start_time: b.start_time, end_time: b.end_time }))
             : [],
-          lunch_start: d.mode === 'office' && d.lunch_start ? d.lunch_start : null,
-          lunch_end: d.mode === 'office' && d.lunch_end ? d.lunch_end : null,
+          lunch_start: (d.mode === 'office' || d.mode === 'online') && d.lunch_start ? d.lunch_start : null,
+          lunch_end: (d.mode === 'office' || d.mode === 'online') && d.lunch_end ? d.lunch_end : null,
         })),
         online_reason: onlineReason,
         employee_comment: employeeComment,
@@ -719,7 +720,7 @@ export default function Schedule() {
                       </select>
                     </div>
 
-                    {selectedDay.mode === 'office' && selectedIsWorkday && (
+                    {selectedSupportsBreaks && selectedIsWorkday && (
                       <>
                         <div className="grid-2" style={{ marginBottom: 10 }}>
                           <div className="form-group">

@@ -36,6 +36,7 @@ export const onboardingAPI = {
   updateReport: (id, data) => api.patch(`/onboarding/reports/${id}/`, data),
   getReports: (params) => api.get('/onboarding/reports/', { params }),
   reviewReport: (id, data) => api.post(`/onboarding/reports/${id}/review/`, data),
+  getInternProgress: (userId) => api.get(`/v1/onboarding/progress/${userId}/detail/`),
 };
 
 export const schedulesAPI = {
@@ -75,6 +76,7 @@ export const auditAPI = {
 export const tasksAPI = {
   my: () => api.get('/v1/tasks/my/'),
   team: () => api.get('/v1/tasks/team/'),
+  assignees: () => api.get('/v1/tasks/assignees/'),
   create: (data) => api.post('/v1/tasks/create/', data),
   detail: (id) => api.get(`/v1/tasks/${id}/`),
   update: (id, data) => api.patch(`/v1/tasks/${id}/`, data),

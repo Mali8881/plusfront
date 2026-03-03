@@ -50,3 +50,8 @@ export const promotionRequestsAPI = {
   approve: (id, data) => api.post(`/auth/promotion-requests/${id}/approve/`, data),
   reject: (id, data) => api.post(`/auth/promotion-requests/${id}/reject/`, data),
 };
+
+export const securityAPI = {
+  unlockUsers: (data) => api.post('/security/unlock-users/', data),
+  forceLogoutAll: () => api.post('/security/force-logout/'),
+};

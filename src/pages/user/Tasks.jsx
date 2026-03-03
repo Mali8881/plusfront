@@ -1,9 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Eye, Plus, X } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import { useAuth } from '../../context/AuthContext';
-import { tasksAPI } from '../../api/content';
-import { usersAPI } from '../../api/auth';
+import { onboardingAPI, tasksAPI } from '../../api/content';
 
 const PRIORITY_LABELS = {
   high: 'Высокий',
@@ -57,13 +56,13 @@ function normalizeReport(raw) {
 export default function Tasks() {
   const { user } = useAuth();
   const role = user?.role;
-  const isManager = ['department_head', 'admin', 'superadmin', 'projectmanager'].includes(role);
-  const canSwitchTaskSections = !['employee', 'intern'].includes(role);
-  const canSeeOwnTasksSection = canSwitchTaskSections && role !== 'superadmin';
-  const canSeeTeamTasksSection = canSwitchTaskSections;
+  const canSeeTeamTasksSection = ['department_head', 'admin', 'superadmin', 'projectmanager'].includes(role);
+  const canSeeOwnTasksSection = role !== 'superadmin';
+  const canSwitchTaskSections = canSeeTeamTasksSection;
   const [taskSection, setTaskSection] = useState(role === 'superadmin' ? 'team' : 'my');
   const canSubmitDaily = ['employee', 'projectmanager'].includes(user?.role);
   const canViewDaily = ['department_head', 'admin', 'superadmin', 'projectmanager'].includes(user?.role);
+  const canViewTeamList = ['projectmanager', 'department_head', 'admin', 'superadmin'].includes(user?.role);
 
   const [tasks, setTasks] = useState([]);
   const [reports, setReports] = useState([]);
@@ -73,6 +72,9 @@ export default function Tasks() {
   const [assigneeOptions, setAssigneeOptions] = useState([]);
   const [movingTaskId, setMovingTaskId] = useState(null);
   const [reportDate, setReportDate] = useState(todayISO());
+  const [progressUser, setProgressUser] = useState(null);
+  const [progressData, setProgressData] = useState(null);
+  const [progressLoading, setProgressLoading] = useState(false);
 
   const [form, setForm] = useState({
     title: '',
@@ -116,9 +118,8 @@ export default function Tasks() {
   };
 
   const loadAssignees = async () => {
-    if (!isManager) return;
     try {
-      const res = await usersAPI.list();
+      const res = await tasksAPI.assignees();
       const list = Array.isArray(res.data) ? res.data : [];
       setAssigneeOptions(
         list.map((u) => ({
@@ -127,7 +128,12 @@ export default function Tasks() {
         }))
       );
     } catch {
-      // fallback: derive from tasks
+      const fallback = Array.from(
+        new Map(
+          tasks.map((task) => [task.assigneeId, { id: task.assigneeId, name: task.assigneeName }])
+        ).values()
+      );
+      setAssigneeOptions(fallback);
     }
   };
 
@@ -237,6 +243,21 @@ export default function Tasks() {
     }
   };
 
+  const openProgress = async (person) => {
+    if (!person?.id) return;
+    setProgressUser(person);
+    setProgressLoading(true);
+    try {
+      const res = await onboardingAPI.getInternProgress(person.id);
+      setProgressData(res.data || null);
+    } catch {
+      setProgressData(null);
+      setError('Не удалось загрузить прогресс стажера.');
+    } finally {
+      setProgressLoading(false);
+    }
+  };
+
   return (
     <MainLayout title="Задачи">
       <div className="page-header">
@@ -267,6 +288,30 @@ export default function Tasks() {
               Задачи сотрудников
             </button>
           )}
+        </div>
+      )}
+
+      {canViewTeamList && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-body">
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Моя команда</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {assigneeOptions.map((person) => (
+                <button
+                  key={person.id}
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => openProgress(person)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Eye size={13} /> {person.name}
+                </button>
+              ))}
+              {assigneeOptions.length === 0 && (
+                <span style={{ color: 'var(--gray-500)', fontSize: 13 }}>Подчиненные пока не найдены.</span>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -385,7 +430,7 @@ export default function Tasks() {
                 <textarea className="form-textarea" style={{ minHeight: 80 }} value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} />
               </div>
               <div className="grid-2" style={{ marginBottom: 12 }}>
-                {isManager ? (
+                {canSeeTeamTasksSection ? (
                   <div className="form-group">
                     <label className="form-label">Исполнитель</label>
                     <select className="form-select" value={form.assignee_id || user?.id || ''} onChange={(e) => setForm((prev) => ({ ...prev, assignee_id: e.target.value }))}>
@@ -418,6 +463,54 @@ export default function Tasks() {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Отмена</button>
               <button className="btn btn-primary" onClick={createTask}>Создать</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {progressUser ? (
+        <div className="modal-overlay" onClick={() => setProgressUser(null)}>
+          <div className="modal" style={{ maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Прогресс: {progressUser.name}</div>
+              <button className="btn-icon" onClick={() => setProgressUser(null)}><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+              {progressLoading ? (
+                <div>Загрузка...</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 8 }}>
+                    День: {progressData?.overview?.current_day_number || '-'} | Выполнено: {progressData?.overview?.completed_days || 0}/{progressData?.overview?.total_days || 0}
+                  </div>
+                  {String(progressData?.user?.role || '').toUpperCase() === 'INTERN' ? (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Регламенты</div>
+                      <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--gray-200)', borderRadius: 8, padding: 8, marginBottom: 10 }}>
+                        {(progressData?.regulations || []).map((item) => (
+                          <div key={item.id} style={{ fontSize: 12, marginBottom: 6 }}>
+                            День {item.day_number} • {item.title} • шаг: {item.step} • тест: {item.quiz_score}/{item.quiz_total}
+                          </div>
+                        ))}
+                        {(progressData?.regulations || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Нет данных.</div>}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)', marginBottom: 10 }}>
+                      Для сотрудников (не стажеров) показываются только задачи по колонкам.
+                    </div>
+                  )}
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Задачи</div>
+                  <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid var(--gray-200)', borderRadius: 8, padding: 8 }}>
+                    {(progressData?.tasks || []).map((item) => (
+                      <div key={item.id} style={{ fontSize: 12, marginBottom: 6 }}>
+                        {item.title} • {item.column}
+                      </div>
+                    ))}
+                    {(progressData?.tasks || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Нет задач.</div>}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

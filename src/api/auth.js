@@ -26,13 +26,22 @@ export const usersAPI = {
 export const departmentsAPI = {
   list: () => api.get('/auth/departments/'),
   create: (data) => api.post('/auth/departments/', data),
+  update: (id, data) => api.patch(`/auth/departments/${id}/`, data),
   delete: (id) => api.delete(`/auth/departments/${id}/`),
+  transferUsers: (id, data) => api.post(`/auth/departments/${id}/transfer-users/`, data),
 };
 
 export const positionsAPI = {
   list: (params) => api.get('/auth/positions/', { params }),
   create: (data) => api.post('/auth/positions/', data),
   delete: (id) => api.delete(`/auth/positions/${id}/`),
+};
+
+export const subdivisionsAPI = {
+  list: (params) => api.get('/auth/subdivisions/', { params }),
+  create: (data) => api.post('/auth/subdivisions/', data),
+  update: (id, data) => api.patch(`/auth/subdivisions/${id}/`, data),
+  delete: (id) => api.delete(`/auth/subdivisions/${id}/`),
 };
 
 export const promotionRequestsAPI = {

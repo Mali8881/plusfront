@@ -616,6 +616,61 @@ input, textarea, select { font-family: var(--font); }
 }
 .work-cell.off { color: var(--danger); background: var(--danger-light); }
 
+.weekly-day-tabs {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(110px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.weekly-day-tab {
+  border: 1px solid var(--gray-200);
+  background: var(--white);
+  border-radius: var(--radius);
+  padding: 10px 8px;
+  text-align: center;
+  color: var(--gray-700);
+}
+.weekly-day-tab.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.08);
+}
+.weekly-day-tab-top {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.weekly-day-tab-bottom {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+.weekly-day-editor {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--white);
+}
+.weekly-day-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.weekly-day-editor-title {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.weekly-day-editor-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--gray-700);
+  user-select: none;
+}
+
 .weekly-plan-toolbar {
   display: flex;
   align-items: flex-end;
@@ -670,6 +725,12 @@ input, textarea, select { font-family: var(--font); }
     width: 100%;
     margin-left: 0;
     justify-content: flex-end;
+  }
+  .weekly-day-tabs {
+    grid-template-columns: repeat(3, minmax(100px, 1fr));
+  }
+  .weekly-day-editor-title {
+    font-size: 22px;
   }
 }
 
@@ -866,4 +927,30 @@ input, textarea, select { font-family: var(--font); }
 
 .input-error:focus {
   border-color: var(--danger) !important;
+}
+
+/* Weekly schedule attendance tone */
+.schedule-entry-card {
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.schedule-entry-card--gray {
+  background: #F3F4F6;
+  border-color: #D1D5DB;
+}
+.schedule-entry-card--red {
+  background: #FEF2F2;
+  border-color: #FECACA;
+}
+.schedule-entry-card--green {
+  background: #F0FDF4;
+  border-color: #BBF7D0;
+}
+.schedule-entry-card--blue {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+}
+.schedule-entry-user {
+  font-weight: 700;
 }

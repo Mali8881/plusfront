@@ -1,6 +1,7 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import MainLayout from '../../layouts/MainLayout';
-import { schedulesAPI } from '../../api/content';
+import { attendanceAPI, schedulesAPI } from '../../api/content';
 import { usersAPI } from '../../api/auth';
 
 const DAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -66,7 +67,41 @@ function shiftWeekFilter(weekStartValue, deltaWeeks) {
   return isoDate(safeCurrent);
 }
 
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+function uniqueMonthPairsForWeek(weekStartValue) {
+  const base = new Date(`${weekStartValue}T00:00:00`);
+  const monday = Number.isNaN(base.getTime()) ? mondayOf(new Date()) : mondayOf(base);
+  const pairs = new Map();
+  for (let i = 0; i < 7; i += 1) {
+    const current = addDays(monday, i);
+    const key = `${current.getFullYear()}-${current.getMonth() + 1}`;
+    if (!pairs.has(key)) {
+      pairs.set(key, { year: current.getFullYear(), month: current.getMonth() + 1 });
+    }
+  }
+  return Array.from(pairs.values());
+}
+
+function makeAttendanceKey(userId, dateIso) {
+  return `${Number(userId)}|${String(dateIso)}`;
+}
+
+function parseDateTimeLocal(dateIso, hhmm) {
+  if (!dateIso || !hhmm || !hhmm.includes(':')) return null;
+  const [h, m] = hhmm.split(':').map(Number);
+  const d = new Date(`${dateIso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setHours(h || 0, m || 0, 0, 0);
+  return d;
+}
+
 export default function AdminSchedules() {
+  const { user } = useAuth();
   const [tab, setTab] = useState('templates');
   const [templates, setTemplates] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -85,6 +120,7 @@ export default function AdminSchedules() {
 
   const [weekFilter, setWeekFilter] = useState(isoDate(mondayOf()));
   const [decisionComment, setDecisionComment] = useState('');
+  const [teamAttendanceMarks, setTeamAttendanceMarks] = useState([]);
 
   const usersMap = useMemo(() => new Map(users.map((u) => [Number(u.id), u])), [users]);
 
@@ -113,6 +149,53 @@ export default function AdminSchedules() {
     loadAll();
   }, []);
 
+
+  const loadTeamAttendanceByWeek = useCallback(async () => {
+    const monthPairs = uniqueMonthPairsForWeek(weekFilter);
+    const [teamSettled, mySettled] = await Promise.all([
+      Promise.allSettled(monthPairs.map(({ year, month }) => attendanceAPI.getTeam({ year, month }))),
+      Promise.allSettled(monthPairs.map(({ year, month }) => attendanceAPI.getMy({ year, month }))),
+    ]);
+    const mergedMap = new Map();
+    teamSettled.forEach((result) => {
+      if (result.status !== 'fulfilled') return;
+      const rows = Array.isArray(result.value?.data) ? result.value.data : [];
+      rows.forEach((item) => {
+        mergedMap.set(makeAttendanceKey(item.user, item.date), item);
+      });
+    });
+    mySettled.forEach((result) => {
+      if (result.status !== 'fulfilled') return;
+      const rows = Array.isArray(result.value?.data) ? result.value.data : [];
+      rows.forEach((item) => {
+        mergedMap.set(makeAttendanceKey(item.user, item.date), item);
+      });
+    });
+    setTeamAttendanceMarks(Array.from(mergedMap.values()));
+  }, [weekFilter, user?.id]);
+
+  useEffect(() => {
+    loadTeamAttendanceByWeek();
+  }, [loadTeamAttendanceByWeek]);
+
+  useEffect(() => {
+    if (tab !== 'board') return undefined;
+    const timer = setInterval(() => {
+      loadTeamAttendanceByWeek();
+    }, 15000);
+    const refreshOnFocus = () => {
+      if (document.visibilityState === 'visible') {
+        loadTeamAttendanceByWeek();
+      }
+    };
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnFocus);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnFocus);
+    };
+  }, [tab, loadTeamAttendanceByWeek]);
   const pendingRequests = useMemo(() => requests.filter((r) => !r.approved), [requests]);
 
   const plansForWeek = useMemo(() => {
@@ -127,6 +210,11 @@ export default function AdminSchedules() {
 
   const boardColumns = useMemo(() => {
     const cols = DAY_LABELS.map((label, idx) => ({ label, index: idx, entries: [] }));
+    const marksMap = new Map();
+    teamAttendanceMarks.forEach((item) => {
+      marksMap.set(makeAttendanceKey(item.user, item.date), String(item.status || '').toLowerCase());
+    });
+    const now = new Date();
 
     // Approved weekly plans (including synthetic template-based plans from API).
     plansForWeek
@@ -139,18 +227,33 @@ export default function AdminSchedules() {
           if (!date) return;
           const idx = date.getDay() === 0 ? 6 : date.getDay() - 1;
           if (day.mode === 'day_off') return;
+          const dateIso = String(day.date);
+          const markStatus = marksMap.get(makeAttendanceKey(userId, dateIso)) || '';
+          const shiftStart = parseDateTimeLocal(dateIso, shortTime(day.start_time));
+          const lateThreshold = shiftStart ? new Date(shiftStart.getTime() + 30 * 60000) : null;
+          const marked = !!markStatus;
+          const isOnlineMark = markStatus === 'remote';
+          let attendanceTone = 'gray';
+          if (marked && isOnlineMark) {
+            attendanceTone = 'blue';
+          } else if (marked) {
+            attendanceTone = 'green';
+          } else if (lateThreshold && now > lateThreshold) {
+            attendanceTone = 'red';
+          }
           cols[idx].entries.push({
             id: `${plan.id}-${day.date}`,
             user: name,
             from: shortTime(day.start_time),
             to: shortTime(day.end_time),
             mode: day.mode === 'online' ? 'онлайн' : 'офис',
+            attendanceTone,
           });
         });
       });
 
     return cols;
-  }, [plansForWeek, usersMap]);
+  }, [plansForWeek, usersMap, teamAttendanceMarks]);
 
   const saveTemplate = async () => {
     if (!templateForm.name.trim()) return;
@@ -495,6 +598,13 @@ export default function AdminSchedules() {
                   <button
                     className="btn btn-secondary btn-sm"
                     type="button"
+                    onClick={loadTeamAttendanceByWeek}
+                  >
+                    Обновить
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
                     onClick={() => setWeekFilter((prev) => shiftWeekFilter(prev, -1))}
                   >
                     Предыдущая неделя
@@ -508,6 +618,9 @@ export default function AdminSchedules() {
                   </button>
                 </div>
               </div>
+              <div style={{ padding: '8px 20px 0', fontSize: 12, color: 'var(--gray-600)' }}>
+                Серый: не началась смена или нет отметки · Красный: нет отметки через 30 минут после начала · Зеленый: отмечен в офисе · Синий: отмечен онлайн
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(170px, 1fr))', borderTop: '1px solid var(--gray-200)', overflowX: 'auto' }}>
                 {boardColumns.map((col, idx) => (
                   <div key={col.label} style={{ minHeight: 360, borderRight: idx < 6 ? '1px solid var(--gray-200)' : 'none' }}>
@@ -518,8 +631,8 @@ export default function AdminSchedules() {
                     <div style={{ padding: 8, display: 'grid', gap: 8 }}>
                       {col.entries.length === 0 && <div style={{ color: 'var(--gray-400)', fontSize: 12 }}>Нет смен</div>}
                       {col.entries.map((entry) => (
-                        <div key={entry.id} style={{ border: '1px solid #BBF7D0', borderRadius: 8, background: '#F0FDF4', padding: '8px 10px' }}>
-                          <div style={{ fontWeight: 700 }}>{entry.user}</div>
+                        <div key={entry.id} className={`schedule-entry-card schedule-entry-card--${entry.attendanceTone}`}>
+                          <div className="schedule-entry-user">{entry.user}</div>
                           <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Время: {entry.from} - {entry.to}</div>
                           <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Формат: {entry.mode}</div>
                         </div>
@@ -535,3 +648,6 @@ export default function AdminSchedules() {
     </MainLayout>
   );
 }
+
+
+

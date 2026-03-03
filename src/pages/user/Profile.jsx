@@ -99,55 +99,32 @@ function OrgSection() {
   );
 }
 
-function ProfileReadonlyBlock({ form }) {
-  const rows = [
-    { label: 'ФИО', value: form.name || '—' },
-    { label: 'Отдел', value: form.department || '—' },
-    { label: 'Подразделение', value: form.subdivision || '—' },
-    { label: 'Должность', value: form.position || '—' },
-    { label: 'Telegram', value: form.telegram || '—' },
-    { label: 'Телефон', value: form.phone || '—' },
-  ];
+const STATIC_DEPARTMENT = 'IT Department';
 
-  return (
-    <div>
-      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Персональные данные</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        {rows.map((item) => (
-          <div key={item.label} style={{ padding: '10px 12px', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', background: 'var(--gray-50)' }}>
-            <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>{item.label}</div>
-            <div style={{ fontSize: 14, fontWeight: 500 }}>{item.value}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+const makeInitialForm = (u) => ({
+  name: u?.name || '',
+  email: u?.email || '',
+  telegram: u?.telegram || '',
+  phone: u?.phone || '',
+});
 
 export default function Profile() {
   const { user, updateUser } = useAuth();
   const meta = ROLE_META[user?.role] || ROLE_META.intern;
-  const isIntern = user?.role === 'intern';
+  const positionLabel = user?.roleLabel || meta.label || user?.position_name || user?.position || '—';
   const fileRef = useRef();
 
-  const [form, setForm] = useState({
-    name: user?.name || '',
-    department: user?.department_name || user?.department || '',
-    subdivision: user?.subdivision_name || user?.subdivision || '',
-    position: user?.position_name || user?.position || '',
-    telegram: user?.telegram || '',
-    phone: user?.phone || '',
-  });
-  const [avatar, setAvatar] = useState(null);
+  const [form, setForm] = useState(() => makeInitialForm(user));
+  const [avatar, setAvatar] = useState(user?.photo || null);
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState({});
+  const [isEditing, setIsEditing] = useState(false);
 
   const validate = () => {
     const e = {};
     if (!form.name.trim()) e.name = 'Обязательное поле';
-    if (!form.department.trim()) e.department = 'Обязательное поле';
-    if (!form.subdivision.trim()) e.subdivision = 'Обязательное поле';
-    if (!form.position.trim()) e.position = 'Обязательное поле';
+    if (!form.email.trim()) e.email = 'Обязательное поле';
+    if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) e.email = 'Введите корректный email';
     return e;
   };
 
@@ -159,7 +136,14 @@ export default function Profile() {
       return;
     }
     setErrors({});
-    updateUser?.(form);
+    updateUser?.({
+      name: form.name,
+      email: form.email,
+      telegram: form.telegram,
+      phone: form.phone,
+      ...(avatar ? { photo: avatar } : {}),
+    });
+    setIsEditing(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -197,9 +181,10 @@ export default function Profile() {
                 <div className="avatar" style={{ width: 72, height: 72, fontSize: 24, border: '3px solid white', boxShadow: 'var(--shadow)', background: avatar ? 'transparent' : meta.color, overflow: 'hidden' }}>
                   {avatar ? <img src={avatar} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
                 </div>
-                {!isIntern && (
+                {isEditing && (
                   <>
                     <button
+                      type="button"
                       onClick={() => fileRef.current?.click()}
                       style={{ position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: '50%', background: meta.color, border: '2px solid white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     >
@@ -211,14 +196,14 @@ export default function Profile() {
               </div>
               <div style={{ marginBottom: 4 }}>
                 <div style={{ fontWeight: 700, fontSize: 16 }}>{form.name || '—'}</div>
-                <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>{form.position || '—'} · {form.department || '—'} / {form.subdivision || '—'}</div>
+                <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>{positionLabel} · {STATIC_DEPARTMENT}</div>
               </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 24, background: 'var(--gray-50)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
               {[
                 { label: 'Логин', value: user?.login || user?.username || '—' },
-                { label: 'Email', value: user?.email || '—' },
+                { label: 'Email', value: form.email || '—' },
                 { label: 'Дата найма', value: user?.hireDate || user?.hire_date || '—' },
               ].map((item) => (
                 <div key={item.label}>
@@ -228,79 +213,89 @@ export default function Profile() {
               ))}
             </div>
 
-            {isIntern ? (
-              <ProfileReadonlyBlock form={form} />
-            ) : (
-              <form onSubmit={handleSave}>
-                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Персональные данные</div>
+            <form onSubmit={handleSave}>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Персональные данные</div>
 
-                <div className="form-group" style={{ marginBottom: 16 }}>
-                  <label className="form-label">ФИО <span style={{ color: 'var(--danger)' }}>*</span></label>
-                  <input className={`form-input ${errors.name ? 'input-error' : ''}`} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Фамилия Имя Отчество" />
-                  {errors.name && <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>{errors.name}</div>}
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label className="form-label">ФИО <span style={{ color: 'var(--danger)' }}>*</span></label>
+                <input
+                  className={`form-input ${errors.name ? 'input-error' : ''}`}
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Фамилия Имя Отчество"
+                  disabled={!isEditing}
+                />
+                {errors.name && <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>{errors.name}</div>}
+              </div>
+
+              <div className="grid-2" style={{ marginBottom: 16 }}>
+                <div className="form-group">
+                  <label className="form-label">Отдел</label>
+                  <input className="form-input" value={STATIC_DEPARTMENT} disabled />
                 </div>
-
-                <div className="grid-2" style={{ marginBottom: 16 }}>
-                  <div className="form-group">
-                    <label className="form-label">Отдел <span style={{ color: 'var(--danger)' }}>*</span></label>
-                    <select className={`form-select ${errors.department ? 'input-error' : ''}`} value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}>
-                      <option value="">Выберите отдел</option>
-                      {DEPARTMENTS.map((d) => <option key={d}>{d}</option>)}
-                    </select>
-                    {errors.department && <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>{errors.department}</div>}
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Подразделение <span style={{ color: 'var(--danger)' }}>*</span></label>
-                    <input className={`form-input ${errors.subdivision ? 'input-error' : ''}`} value={form.subdivision} onChange={(e) => setForm((f) => ({ ...f, subdivision: e.target.value }))} placeholder="Например: Frontend" />
-                    {errors.subdivision && <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>{errors.subdivision}</div>}
-                  </div>
+                <div className="form-group">
+                  <label className="form-label">Должность</label>
+                  <input className="form-input" value={positionLabel} disabled />
                 </div>
+              </div>
 
-                <div className="form-group" style={{ marginBottom: 16 }}>
-                  <label className="form-label">Должность <span style={{ color: 'var(--danger)' }}>*</span></label>
-                  <select className={`form-select ${errors.position ? 'input-error' : ''}`} value={form.position} onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}>
-                    <option value="">Выберите должность</option>
-                    {POSITIONS.map((p) => <option key={p}>{p}</option>)}
-                  </select>
-                  {errors.position && <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>{errors.position}</div>}
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label className="form-label">Email <span style={{ color: 'var(--danger)' }}>*</span></label>
+                <input
+                  className={`form-input ${errors.email ? 'input-error' : ''}`}
+                  value={form.email}
+                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="email@example.com"
+                  disabled={!isEditing}
+                />
+                {errors.email && <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 4 }}>{errors.email}</div>}
+              </div>
+
+              <div className="grid-2" style={{ marginBottom: 24 }}>
+                <div className="form-group">
+                  <label className="form-label">Telegram</label>
+                  <input className="form-input" value={form.telegram} onChange={(e) => setForm((f) => ({ ...f, telegram: e.target.value }))} placeholder="@username" disabled={!isEditing} />
                 </div>
-
-                <div className="grid-2" style={{ marginBottom: 24 }}>
-                  <div className="form-group">
-                    <label className="form-label">Telegram</label>
-                    <input className="form-input" value={form.telegram} onChange={(e) => setForm((f) => ({ ...f, telegram: e.target.value }))} placeholder="@username" />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Телефон</label>
-                    <input className="form-input" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="+996 ..." />
-                  </div>
+                <div className="form-group">
+                  <label className="form-label">Телефон</label>
+                  <input className="form-input" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="+996 ..." disabled={!isEditing} />
                 </div>
+              </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                {isEditing ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setForm(makeInitialForm(user));
+                        setAvatar(user?.photo || null);
+                        setErrors({});
+                        setIsEditing(false);
+                      }}
+                    >
+                      Сбросить
+                    </button>
+                    <button type="submit" className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {saved ? <><Check size={15} /> Сохранено!</> : <><Save size={15} /> Сохранить изменения</>}
+                    </button>
+                  </>
+                ) : (
                   <button
                     type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setForm({
-                      name: user?.name || '',
-                      department: user?.department_name || user?.department || '',
-                      subdivision: user?.subdivision_name || user?.subdivision || '',
-                      position: user?.position_name || user?.position || '',
-                      telegram: user?.telegram || '',
-                      phone: user?.phone || '',
-                    })}
+                    className="btn btn-primary"
+                    onClick={() => setIsEditing(true)}
                   >
-                    Сбросить
+                    Редактировать
                   </button>
-                  <button type="submit" className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {saved ? <><Check size={15} /> Сохранено!</> : <><Save size={15} /> Сохранить изменения</>}
-                  </button>
-                </div>
-              </form>
-            )}
+                )}
+              </div>
+            </form>
           </div>
         </div>
 
-        {isIntern && (
+        {user?.role === 'intern' && (
           <div className="card" style={{ marginTop: 20 }}>
             <div className="card-header">
               <span className="card-title">Перевод в сотрудники</span>

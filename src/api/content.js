@@ -15,6 +15,7 @@ export const regulationsAPI = {
   markRead: (id) => api.post(`/v1/regulations/${id}/read/`),
   sendFeedback: (id, data) => api.post(`/v1/regulations/${id}/feedback/`, data),
   submitQuiz: (id, data) => api.post(`/v1/regulations/${id}/quiz/`, data),
+  acknowledge: (id) => api.post(`/v1/regulations/${id}/acknowledge/`),
 };
 
 export const instructionsAPI = {
@@ -29,6 +30,8 @@ export const onboardingAPI = {
   listDays: () => api.get('/v1/onboarding/days/'),
   getDay: (id) => api.get(`/v1/onboarding/days/${id}/`),
   completeDay: (id) => api.post(`/v1/onboarding/days/${id}/complete/`),
+  getInternRole: () => api.get('/v1/accounts/me/intern-role/'),
+  setInternRole: (subdivision_id) => api.post('/v1/accounts/me/intern-role/', { subdivision_id }),
   submitReport: (data) => api.post('/onboarding/reports/', data),
   updateReport: (id, data) => api.patch(`/onboarding/reports/${id}/`, data),
   getReports: (params) => api.get('/onboarding/reports/', { params }),
@@ -50,6 +53,13 @@ export const schedulesAPI = {
   weeklyPlansMy: () => api.get('/v1/work-schedules/weekly-plans/my/'),
   weeklyPlansAdmin: (params) => api.get('/v1/work-schedules/admin/weekly-plans/', { params }),
   weeklyPlanDecision: (id, data) => api.post(`/v1/work-schedules/admin/weekly-plans/${id}/decision/`, data),
+};
+
+export const attendanceAPI = {
+  getMy: (params) => api.get('/v1/attendance/my/', { params }),
+  getTeam: (params) => api.get('/v1/attendance/team/', { params }),
+  mark: (data) => api.post('/v1/attendance/mark/', data),
+  officeCheckIn: (data) => api.post('/v1/attendance/check-in/', data),
 };
 
 export const feedbackAPI = {

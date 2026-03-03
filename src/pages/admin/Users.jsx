@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   usersAPI,
   departmentsAPI,
-  positionsAPI,
+  subdivisionsAPI,
   promotionRequestsAPI,
 } from '../../api/auth';
 
@@ -22,7 +22,7 @@ const EMPTY_FORM = {
   name: '',
   email: '',
   department: '',
-  position: '',
+  subdivision: '',
   manager: '',
   role: 'intern',
   password: '',
@@ -43,19 +43,28 @@ function mapUser(raw) {
     role: raw.role || 'intern',
     department: raw.department_name || '',
     departmentId: raw.department || null,
-    position: raw.position_name || '',
+    position: raw.subdivision_name || raw.position_name || '',
     positionId: raw.position || null,
+    subdivisionId: raw.subdivision || null,
+    subdivisionName: raw.subdivision_name || '',
     managerId: raw.manager || null,
     managerName: raw.manager_name || '',
     status: raw.is_active ? 'active' : 'blocked',
   };
 }
 
+function fixedSubdivisionLabelByRole(role) {
+  if (role === 'projectmanager') return 'Тимлид';
+  if (role === 'department_head') return 'Руководитель';
+  if (role === 'admin') return 'Админ';
+  return '';
+}
+
 export default function AdminUsers() {
   const { user, isSuperAdmin } = useAuth();
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [positions, setPositions] = useState([]);
+  const [subdivisions, setSubdivisions] = useState([]);
   const [promotionRequests, setPromotionRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -73,15 +82,15 @@ export default function AdminUsers() {
     setLoading(true);
     setError('');
     try {
-      const [usersRes, depRes, posRes, promotionRes] = await Promise.all([
+      const [usersRes, depRes, subRes, promotionRes] = await Promise.all([
         usersAPI.list(),
         departmentsAPI.list(),
-        positionsAPI.list(),
+        subdivisionsAPI.list({ is_active: true }),
         promotionRequestsAPI.list(),
       ]);
       setUsers((Array.isArray(usersRes.data) ? usersRes.data : []).map(mapUser));
       setDepartments(Array.isArray(depRes.data) ? depRes.data : []);
-      setPositions(Array.isArray(posRes.data) ? posRes.data : []);
+      setSubdivisions(Array.isArray(subRes.data) ? subRes.data : []);
       setPromotionRequests(Array.isArray(promotionRes.data) ? promotionRes.data : []);
     } catch {
       setError('Не удалось загрузить данные.');
@@ -123,7 +132,7 @@ export default function AdminUsers() {
       name: target.name,
       email: target.email,
       department: target.departmentId || '',
-      position: target.positionId || '',
+      subdivision: target.subdivisionId || '',
       manager: target.managerId || '',
       role: target.role || 'intern',
       password: '',
@@ -139,13 +148,15 @@ export default function AdminUsers() {
       if (form.role === 'intern') departmentPayload = null;
       else if (form.role === 'employee' || form.role === 'projectmanager') departmentPayload = ownDepartmentId || null;
     }
+    const supportsSubdivision = form.role === 'intern' || form.role === 'employee';
     const payload = {
       username: form.email,
       email: form.email,
       first_name: name.first_name,
       last_name: name.last_name,
       department: departmentPayload,
-      position: form.position || null,
+      position: null,
+      subdivision: supportsSubdivision ? (form.subdivision || null) : null,
       manager: form.role === 'projectmanager' ? null : (form.manager || null),
       role: form.role,
     };
@@ -210,6 +221,14 @@ export default function AdminUsers() {
       return Number(u.departmentId) === Number(effectiveDepartment);
     });
   }, [users, form.department, form.role, isDepartmentHead, ownDepartmentId]);
+
+  const subdivisionOptions = useMemo(() => {
+    const effectiveDepartment = isDepartmentHead
+      ? ((form.role === 'employee' || form.role === 'projectmanager') ? ownDepartmentId : (form.department || ownDepartmentId))
+      : form.department;
+    if (!effectiveDepartment) return subdivisions;
+    return subdivisions.filter((s) => Number(s.department_id) === Number(effectiveDepartment));
+  }, [subdivisions, form.department, form.role, isDepartmentHead, ownDepartmentId]);
 
   return (
     <MainLayout title="Админ-панель · Пользователи">
@@ -349,11 +368,21 @@ export default function AdminUsers() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Должность</label>
-                  <select className="form-select" value={form.position} onChange={(e) => setForm((prev) => ({ ...prev, position: e.target.value }))}>
-                    <option value="">-</option>
-                    {positions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                  <label className="form-label">Подотдел</label>
+                  {form.role === 'intern' || form.role === 'employee' ? (
+                    <select
+                      className="form-select"
+                      value={form.subdivision}
+                      onChange={(e) => setForm((prev) => ({ ...prev, subdivision: e.target.value }))}
+                    >
+                      <option value="">-</option>
+                      {subdivisionOptions.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input className="form-input" value={fixedSubdivisionLabelByRole(form.role) || '-'} disabled />
+                  )}
                 </div>
               </div>
               <div className="grid-2" style={{ marginTop: 10 }}>
@@ -364,7 +393,12 @@ export default function AdminUsers() {
                     value={form.role}
                     onChange={(e) => {
                       const nextRole = e.target.value;
-                      setForm((prev) => ({ ...prev, role: nextRole, manager: nextRole === 'projectmanager' ? '' : prev.manager }));
+                      setForm((prev) => ({
+                        ...prev,
+                        role: nextRole,
+                        manager: nextRole === 'projectmanager' ? '' : prev.manager,
+                        subdivision: (nextRole === 'intern' || nextRole === 'employee') ? prev.subdivision : '',
+                      }));
                     }}
                   >
                     <option value="intern">Стажер</option>

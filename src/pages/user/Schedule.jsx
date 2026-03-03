@@ -1,8 +1,9 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import MainLayout from '../../layouts/MainLayout';
-import { schedulesAPI } from '../../api/content';
+import { attendanceAPI, schedulesAPI } from '../../api/content';
 
 const DAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const DAY_FULL_LABELS = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
 const STATUS_LABELS = {
   pending: 'На рассмотрении',
   clarification_requested: 'Нужна доработка',
@@ -76,6 +77,12 @@ function addMinutesHHMM(value, delta) {
   const hh = String(Math.floor(total / 60)).padStart(2, '0');
   const mm = String(((total % 60) + 60) % 60).padStart(2, '0');
   return `${hh}:${mm}`;
+}
+
+function defaultShiftByDayIndex(dayIndex) {
+  // Weekdays: 09:00-18:00; weekends: 11:00-19:00 (backend constraints).
+  if (dayIndex >= 5) return { start: '11:00', end: '19:00' };
+  return { start: '09:00', end: '18:00' };
 }
 
 function extractErrorMessage(e, fallback) {
@@ -153,6 +160,62 @@ function shiftWeek(weekStartValue, deltaWeeks, plans) {
   return candidateIso;
 }
 
+function weekdayMonBased(dateObj) {
+  const jsDay = dateObj.getDay();
+  return jsDay === 0 ? 6 : jsDay - 1;
+}
+
+function resolveTodayShift({ todayIso, todayWeekStart, weeklyPlans, mySchedule, workSchedules }) {
+  const plansForCurrentWeek = (Array.isArray(weeklyPlans) ? weeklyPlans : []).filter(
+    (plan) => String(plan.week_start) === String(todayWeekStart)
+  );
+  const approvedPlan = plansForCurrentWeek.find((plan) => String(plan.status).toLowerCase() === 'approved');
+  const selectedPlan = approvedPlan || plansForCurrentWeek[0];
+  const dayFromPlan = selectedPlan?.days?.find((item) => String(item.date) === String(todayIso));
+
+  if (dayFromPlan) {
+    return {
+      mode: dayFromPlan.mode || 'day_off',
+      start_time: dayFromPlan.start_time || '',
+      end_time: dayFromPlan.end_time || '',
+      breaks: Array.isArray(dayFromPlan.breaks) ? dayFromPlan.breaks : [],
+      lunch_start: dayFromPlan.lunch_start || '',
+      lunch_end: dayFromPlan.lunch_end || '',
+      source: selectedPlan ? 'weekly_plan' : 'none',
+    };
+  }
+
+  const assignedSchedule = (Array.isArray(workSchedules) ? workSchedules : []).find(
+    (item) => String(item.id) === String(mySchedule?.schedule)
+  );
+  if (assignedSchedule) {
+    const todayDate = parseIsoDate(todayIso) || new Date();
+    const isWorkday = Array.isArray(assignedSchedule.work_days)
+      && assignedSchedule.work_days.includes(weekdayMonBased(todayDate));
+    return {
+      mode: isWorkday ? 'office' : 'day_off',
+      start_time: isWorkday ? shortTime(assignedSchedule.start_time) : '',
+      end_time: isWorkday ? shortTime(assignedSchedule.end_time) : '',
+      breaks: isWorkday && assignedSchedule.break_start && assignedSchedule.break_end
+        ? [{ start_time: shortTime(assignedSchedule.break_start), end_time: shortTime(assignedSchedule.break_end) }]
+        : [],
+      lunch_start: '',
+      lunch_end: '',
+      source: 'template',
+    };
+  }
+
+  return {
+    mode: 'day_off',
+    start_time: '',
+    end_time: '',
+    breaks: [],
+    lunch_start: '',
+    lunch_end: '',
+    source: 'none',
+  };
+}
+
 export default function Schedule() {
   const [tab, setTab] = useState('my');
   const [workSchedules, setWorkSchedules] = useState([]);
@@ -167,12 +230,38 @@ export default function Schedule() {
 
   const [weekStart, setWeekStart] = useState(isoDate(mondayOf()));
   const [days, setDays] = useState(makeDefaultDays(isoDate(mondayOf())));
+  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [onlineReason, setOnlineReason] = useState('');
   const [employeeComment, setEmployeeComment] = useState('');
+  const [todayAttendanceMark, setTodayAttendanceMark] = useState(null);
+  const [markingStart, setMarkingStart] = useState(false);
+
+  const today = useMemo(() => new Date(), []);
+  const todayIso = useMemo(() => isoDate(today), [today]);
+  const todayWeekStart = useMemo(() => isoDate(mondayOf(today)), [today]);
+  const todayWeekdayIndex = useMemo(() => weekdayMonBased(today), [today]);
+  const todayLabel = DAY_FULL_LABELS[todayWeekdayIndex];
+  const todayShift = useMemo(
+    () => resolveTodayShift({ todayIso, todayWeekStart, weeklyPlans, mySchedule, workSchedules }),
+    [todayIso, todayWeekStart, weeklyPlans, mySchedule, workSchedules]
+  );
+  const isTodayWorking = todayShift.mode === 'office' || todayShift.mode === 'online';
+  const hasTodayMark = Boolean(todayAttendanceMark?.status);
 
   const officeHours = useMemo(() => days.reduce((sum, d) => sum + (d.mode === 'office' ? calcHours(d.start_time, d.end_time) : 0), 0), [days]);
   const onlineHours = useMemo(() => days.reduce((sum, d) => sum + (d.mode === 'online' ? calcHours(d.start_time, d.end_time) : 0), 0), [days]);
   const needReason = officeHours < 24 || onlineHours > 16;
+
+  const loadTodayAttendanceMark = async () => {
+    const attendanceRes = await attendanceAPI.getMy({
+      year: today.getFullYear(),
+      month: today.getMonth() + 1,
+    });
+    const rows = Array.isArray(attendanceRes?.data) ? attendanceRes.data : [];
+    const found = rows.find((item) => String(item.date) === String(todayIso)) || null;
+    setTodayAttendanceMark(found);
+    return found;
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -202,6 +291,11 @@ export default function Schedule() {
         setMySchedule(null);
         setSelectedScheduleId('');
       }
+      try {
+        await loadTodayAttendanceMark();
+      } catch {
+        setTodayAttendanceMark(null);
+      }
     } catch {
       setMessage('Не удалось загрузить данные графика.');
     } finally {
@@ -212,6 +306,7 @@ export default function Schedule() {
   useEffect(() => {
     loadAll();
   }, []);
+
 
   useEffect(() => {
     const fallback = findFirstAvailableWeekStart(weeklyPlans);
@@ -247,6 +342,7 @@ export default function Schedule() {
       setOnlineReason('');
       setEmployeeComment('');
     }
+    setSelectedDayIndex(0);
   }, [weekStart, weeklyPlans]);
 
   const submitSelection = async () => {
@@ -297,6 +393,10 @@ export default function Schedule() {
     }));
   };
 
+  const selectedDay = days[selectedDayIndex] || null;
+  const selectedDayTitle = DAY_FULL_LABELS[selectedDayIndex] || '';
+  const selectedIsWorkday = !!selectedDay && selectedDay.mode !== 'day_off';
+
   const submitWeeklyPlan = async () => {
     const invalid = days.find((d) => d.mode !== 'day_off' && (!d.start_time || !d.end_time || !d.start_time.endsWith(':00') || !d.end_time.endsWith(':00')));
     if (invalid) {
@@ -335,6 +435,74 @@ export default function Schedule() {
     }
   };
 
+  const markStartOfWork = async () => {
+    if (!isTodayWorking || markingStart) return;
+    setMarkingStart(true);
+    setMessage('');
+    try {
+      if (todayShift.mode === 'online') {
+        await attendanceAPI.mark({
+          date: todayIso,
+          status: 'remote',
+          comment: 'Начало работы (онлайн).',
+        });
+        const found = await loadTodayAttendanceMark();
+        if (found?.status) {
+          setMessage('Отметка о начале онлайн-работы сохранена.');
+        } else {
+          setMessage('Сервер не вернул отметку. Нажмите обновить страницу и проверьте еще раз.');
+        }
+      } else {
+        const attemptOfficeCheckIn = async () => {
+          if (!navigator.geolocation) {
+            return attendanceAPI.officeCheckIn({});
+          }
+          try {
+            const position = await new Promise((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: true,
+                timeout: 15000,
+                maximumAge: 0,
+              });
+            });
+            return attendanceAPI.officeCheckIn({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy_m: position.coords.accuracy,
+            });
+          } catch (geoError) {
+            if (geoError?.code === 1 || geoError?.code === 2 || geoError?.code === 3) {
+              return attendanceAPI.officeCheckIn({});
+            }
+            throw geoError;
+          }
+        };
+
+        const response = await attemptOfficeCheckIn();
+        if (!response?.data?.in_office) {
+          setMessage('Офис не подтвержден. Проверьте Wi-Fi/IP офиса и повторите.');
+          await loadTodayAttendanceMark();
+          return;
+        }
+        const found = await loadTodayAttendanceMark();
+        if (found?.status) {
+          setMessage('Отметка о начале работы в офисе подтверждена.');
+        } else {
+          setMessage('Проверка офиса прошла, но отметка не найдена. Проверьте API /attendance/my.');
+        }
+      }
+    } catch (e) {
+      setMessage(extractErrorMessage(e, 'Не удалось выполнить отметку начала работы.'));
+      try {
+        await loadTodayAttendanceMark();
+      } catch {
+        // ignore refresh errors
+      }
+    } finally {
+      setMarkingStart(false);
+    }
+  };
+
   return (
     <MainLayout title="Мой график">
       <div className="page-header">
@@ -369,6 +537,46 @@ export default function Schedule() {
                     <div style={{ marginBottom: 8 }}><b>Статус:</b> {mySchedule.status || (mySchedule.approved ? 'approved' : 'pending')}</div>
                     <div style={{ marginBottom: 8 }}><b>Запрошен:</b> {mySchedule.requested_at ? new Date(mySchedule.requested_at).toLocaleString('ru-RU') : '—'}</div>
                   </>
+                )}
+
+                <div style={{ margin: '14px 0', borderTop: '1px solid var(--gray-200)' }} />
+
+                <div style={{ marginBottom: 8, fontWeight: 700 }}>
+                  Сегодня ({todayLabel}, {todayIso})
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <b>Формат:</b> {todayShift.mode === 'office' ? 'Офис' : todayShift.mode === 'online' ? 'Онлайн' : 'Выходной'}
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <b>Время:</b> {todayShift.start_time && todayShift.end_time ? `${todayShift.start_time} - ${todayShift.end_time}` : '—'}
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <b>Перерывы:</b> {todayShift.breaks.length > 0
+                    ? todayShift.breaks
+                      .map((item) => `${item.start_time || '—'}-${item.end_time || '—'}`)
+                      .join(', ')
+                    : 'Нет'}
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <b>Обед:</b> {todayShift.lunch_start && todayShift.lunch_end ? `${todayShift.lunch_start}-${todayShift.lunch_end}` : 'Нет'}
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <b>Отметка на сегодня:</b> {todayAttendanceMark ? todayAttendanceMark.status : 'Нет'}
+                </div>
+
+                {isTodayWorking && (
+                  <button
+                    className={`btn btn-sm ${hasTodayMark ? 'btn-secondary' : 'btn-primary'}`}
+                    type="button"
+                    onClick={markStartOfWork}
+                    disabled={markingStart || hasTodayMark}
+                  >
+                    {hasTodayMark
+                      ? 'Отмечен'
+                      : markingStart
+                        ? 'Проверяем...'
+                        : 'Отметиться о начале работы'}
+                  </button>
                 )}
               </div>
             </div>
@@ -443,60 +651,113 @@ export default function Schedule() {
                   </div>
                 </div>
 
-                <div className="table-wrap" style={{ marginBottom: 12 }}>
-                  <table className="table">
-                    <thead>
-                      <tr><th>День</th><th>Дата</th><th>Формат</th><th>Начало</th><th>Конец</th><th>Обед</th><th>Перерывы</th><th>Комментарий</th></tr>
-                    </thead>
-                    <tbody>
-                      {days.map((d, idx) => (
-                        <tr key={d.date}>
-                          <td>{DAY_LABELS[idx]}</td>
-                          <td>{d.date}</td>
-                          <td>
-                            <select className="form-select" value={d.mode} onChange={(e) => {
-                              const mode = e.target.value;
-                              if (mode === 'day_off') {
-                                updateDay(idx, { mode, start_time: '', end_time: '', lunch_start: '', lunch_end: '', breaks: [] });
-                              } else {
-                                updateDay(idx, { mode, start_time: d.start_time || '09:00', end_time: d.end_time || '18:00' });
-                              }
-                            }}>
-                              <option value="office">Офис</option>
-                              <option value="online">Онлайн</option>
-                              <option value="day_off">Выходной</option>
-                            </select>
-                          </td>
-                          <td><input className="form-input" type="time" value={d.start_time} disabled={d.mode === 'day_off'} onChange={(e) => updateDay(idx, { start_time: e.target.value })} /></td>
-                          <td><input className="form-input" type="time" value={d.end_time} disabled={d.mode === 'day_off'} onChange={(e) => updateDay(idx, { end_time: e.target.value })} /></td>
-                          <td>
-                            {d.mode === 'office' ? (
-                              <div style={{ display: 'grid', gap: 4 }}>
-                                <input className="form-input" type="time" value={d.lunch_start} onChange={(e) => updateDay(idx, { lunch_start: e.target.value })} />
-                                <input className="form-input" type="time" value={d.lunch_end} onChange={(e) => updateDay(idx, { lunch_end: e.target.value })} />
-                              </div>
-                            ) : '—'}
-                          </td>
-                          <td style={{ minWidth: 210 }}>
-                            {d.mode === 'office' ? (
-                              <div style={{ display: 'grid', gap: 4 }}>
-                                {d.breaks.map((b, bi) => (
-                                  <div key={`${d.date}-b-${bi}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 4 }}>
-                                    <input className="form-input" type="time" value={b.start_time} onChange={(e) => updateBreak(idx, bi, { start_time: e.target.value })} />
-                                    <input className="form-input" type="time" value={b.end_time} onChange={(e) => updateBreak(idx, bi, { end_time: e.target.value })} />
-                                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => removeBreak(idx, bi)}>×</button>
-                                  </div>
-                                ))}
-                                <button className="btn btn-secondary btn-sm" type="button" onClick={() => addBreak(idx)} disabled={d.breaks.length >= 4}>+ перерыв</button>
-                              </div>
-                            ) : '—'}
-                          </td>
-                          <td><input className="form-input" value={d.comment} onChange={(e) => updateDay(idx, { comment: e.target.value })} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="weekly-day-tabs">
+                  {days.map((d, idx) => (
+                    <button
+                      key={d.date}
+                      type="button"
+                      className={`weekly-day-tab ${selectedDayIndex === idx ? 'active' : ''}`}
+                      onClick={() => setSelectedDayIndex(idx)}
+                    >
+                      <div className="weekly-day-tab-top">{DAY_LABELS[idx]}</div>
+                      <div className="weekly-day-tab-bottom">{d.mode === 'day_off' ? 'Выходной' : 'Рабочий'}</div>
+                    </button>
+                  ))}
                 </div>
+
+                {selectedDay && (
+                  <div className="weekly-day-editor">
+                    <div className="weekly-day-editor-header">
+                      <div className="weekly-day-editor-title">{selectedDayTitle}</div>
+                    </div>
+
+                    <div className="grid-2" style={{ marginBottom: 10 }}>
+                      <div className="form-group">
+                        <label className="form-label">Начало</label>
+                        <input
+                          className="form-input"
+                          type="time"
+                          value={selectedDay.start_time}
+                          disabled={!selectedIsWorkday}
+                          onChange={(e) => updateDay(selectedDayIndex, { start_time: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Конец</label>
+                        <input
+                          className="form-input"
+                          type="time"
+                          value={selectedDay.end_time}
+                          disabled={!selectedIsWorkday}
+                          onChange={(e) => updateDay(selectedDayIndex, { end_time: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 10 }}>
+                      <label className="form-label">Формат</label>
+                      <select
+                        className="form-select"
+                        value={selectedDay.mode}
+                        onChange={(e) => {
+                          const mode = e.target.value;
+                          if (mode === 'day_off') {
+                            updateDay(selectedDayIndex, { mode, start_time: '', end_time: '', lunch_start: '', lunch_end: '', breaks: [] });
+                          } else {
+                            const defaults = defaultShiftByDayIndex(selectedDayIndex);
+                            updateDay(selectedDayIndex, {
+                              mode,
+                              start_time: selectedDay.start_time || defaults.start,
+                              end_time: selectedDay.end_time || defaults.end,
+                            });
+                          }
+                        }}
+                      >
+                        <option value="office">Офис</option>
+                        <option value="online">Онлайн</option>
+                        <option value="day_off">Выходной</option>
+                      </select>
+                    </div>
+
+                    {selectedDay.mode === 'office' && selectedIsWorkday && (
+                      <>
+                        <div className="grid-2" style={{ marginBottom: 10 }}>
+                          <div className="form-group">
+                            <label className="form-label">Обед с</label>
+                            <input className="form-input" type="time" value={selectedDay.lunch_start} onChange={(e) => updateDay(selectedDayIndex, { lunch_start: e.target.value })} />
+                          </div>
+                          <div className="form-group">
+                            <label className="form-label">Обед до</label>
+                            <input className="form-input" type="time" value={selectedDay.lunch_end} onChange={(e) => updateDay(selectedDayIndex, { lunch_end: e.target.value })} />
+                          </div>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <label className="form-label">Короткие перерывы</label>
+                            <button className="btn btn-secondary btn-sm" type="button" onClick={() => addBreak(selectedDayIndex)} disabled={selectedDay.breaks.length >= 4}>
+                              + 15 мин
+                            </button>
+                          </div>
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            {selectedDay.breaks.map((b, bi) => (
+                              <div key={`${selectedDay.date}-b-${bi}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6 }}>
+                                <input className="form-input" type="time" value={b.start_time} onChange={(e) => updateBreak(selectedDayIndex, bi, { start_time: e.target.value })} />
+                                <input className="form-input" type="time" value={b.end_time} onChange={(e) => updateBreak(selectedDayIndex, bi, { end_time: e.target.value })} />
+                                <button className="btn btn-secondary btn-sm" type="button" onClick={() => removeBreak(selectedDayIndex, bi)}>?</button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="form-group">
+                      <label className="form-label">Комментарий</label>
+                      <input className="form-input" value={selectedDay.comment} onChange={(e) => updateDay(selectedDayIndex, { comment: e.target.value })} />
+                    </div>
+                  </div>
+                )}
 
                 <div className="form-group" style={{ marginBottom: 10 }}>
                   <label className="form-label">Причина онлайн-часов (обязательно, если офис &lt; 24 и/или онлайн &gt; 16)</label>
@@ -544,3 +805,15 @@ export default function Schedule() {
     </MainLayout>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+

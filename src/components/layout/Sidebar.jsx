@@ -2,106 +2,88 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
+import { normalizeRole, isAdminRole } from '../../utils/roles';
 import {
-  Home,
-  BookOpen,
-  Calendar,
-  BookMarked,
-  Users,
-  Shield,
-  FileText,
-  LayoutGrid,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-  GraduationCap,
-  MessageSquare,
-  CheckSquare,
-  Wallet,
+  Home, BookOpen, Calendar, BookMarked,
+  Users, Shield, FileText, ClipboardCheck,
+  LayoutGrid, Settings, ChevronLeft, ChevronRight,
+  MessageSquare, CheckSquare, Wallet,
 } from 'lucide-react';
 
 const NAV_INTERN = [
-  { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Онбординг', icon: GraduationCap, path: '/onboarding' },
+  { label: 'Главная', key: 'sidebar.home', icon: Home, path: '/dashboard' },
+  { label: 'Регламенты', key: 'sidebar.regulations', icon: BookMarked, path: '/regulations' },
+  { label: 'График работы', key: 'sidebar.schedule', icon: Calendar, path: '/schedule' },
+  { label: 'Инструкция', key: 'sidebar.instructions', icon: BookOpen, path: '/instructions' },
 ];
 
 const NAV_EMPLOYEE = [
-  { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Мои задачи', icon: CheckSquare, path: '/tasks' },
-  { label: 'Зарплата', icon: Wallet, path: '/salary' },
-  { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
-  { label: 'Инструкция', icon: BookOpen, path: '/instructions' },
+  { label: 'Главная', key: 'sidebar.home', icon: Home, path: '/dashboard' },
+  { label: 'Компания', key: 'sidebar.company', icon: Users, path: '/company' },
+  { label: 'Регламенты', key: 'sidebar.regulations', icon: BookMarked, path: '/regulations' },
+  { label: 'График работы', key: 'sidebar.schedule', icon: Calendar, path: '/schedule' },
+  { label: 'Инструкция', key: 'sidebar.instructions', icon: BookOpen, path: '/instructions' },
 ];
 
 const NAV_PM = [
-  { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Задачи команды', icon: CheckSquare, path: '/tasks' },
-  { label: 'Онбординг / Отчёты', icon: GraduationCap, path: '/admin/onboarding' },
-  { label: 'Зарплата', icon: Wallet, path: '/salary' },
-  { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
-  { label: 'Инструкция', icon: BookOpen, path: '/instructions' },
-];
-
-const NAV_DEPARTMENT_HEAD = [
-  { section: 'МОИ РАЗДЕЛЫ' },
-  { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Задачи', icon: CheckSquare, path: '/tasks' },
-  { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
-  { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
-  { label: 'Зарплата', icon: Wallet, path: '/salary' },
-  { section: 'УПРАВЛЕНИЕ' },
-  { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
-  { label: 'Пользователи', icon: Users, path: '/admin/users' },
-  { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
-  { label: 'Обратная связь', icon: MessageSquare, path: '/admin/feedback' },
+  { label: 'Главная', key: 'sidebar.home', icon: Home, path: '/dashboard' },
+  { label: 'Моя команда', key: 'sidebar.team', icon: Users, path: '/team' },
+  { label: 'Зарплата', key: 'sidebar.salary', icon: Wallet, path: '/salary' },
+  { label: 'Компания', key: 'sidebar.company', icon: Users, path: '/company' },
+  { label: 'Регламенты', key: 'sidebar.regulations', icon: BookMarked, path: '/regulations' },
+  { label: 'График работы', key: 'sidebar.schedule', icon: Calendar, path: '/schedule' },
+  { label: 'Инструкция', key: 'sidebar.instructions', icon: BookOpen, path: '/instructions' },
 ];
 
 const NAV_ADMIN = [
-  { section: 'МОИ РАЗДЕЛЫ' },
-  { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Задачи', icon: CheckSquare, path: '/tasks' },
-  { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
-  { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
-  { label: 'Зарплата', icon: Wallet, path: '/salary' },
-  { section: 'УПРАВЛЕНИЕ' },
-  { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
-  { label: 'Пользователи', icon: Users, path: '/admin/users' },
-  { label: 'Роли и права', icon: Shield, path: '/admin/roles' },
-  { label: 'Контент', icon: FileText, path: '/admin/content' },
-  { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
-  { label: 'Обратная связь', icon: MessageSquare, path: '/admin/feedback' },
+  { section: 'МОИ РАЗДЕЛЫ', sectionKey: 'sidebar.section.my' },
+  { label: 'Главная', key: 'sidebar.home', icon: Home, path: '/dashboard' },
+  { label: 'Моя команда', key: 'sidebar.team', icon: Users, path: '/team' },
+  { label: 'Задачи', key: 'sidebar.tasks', icon: CheckSquare, path: '/tasks' },
+  { label: 'Посещаемость', key: 'sidebar.attendance', icon: ClipboardCheck, path: '/attendance' },
+  { label: 'Компания', key: 'sidebar.company', icon: Users, path: '/company' },
+  { label: 'График работы', key: 'sidebar.schedule', icon: Calendar, path: '/schedule' },
+  { label: 'Регламенты', key: 'sidebar.regulations', icon: BookMarked, path: '/regulations' },
+  { label: 'Зарплата', key: 'sidebar.salary', icon: Wallet, path: '/salary' },
+
+  { section: 'УПРАВЛЕНИЕ', sectionKey: 'sidebar.section.manage' },
+  { label: 'Обзор', key: 'sidebar.overview', icon: LayoutGrid, path: '/admin/overview' },
+  { label: 'Пользователи', key: 'sidebar.users', icon: Users, path: '/admin/users' },
+  { label: 'Контент', key: 'sidebar.content', icon: FileText, path: '/admin/content' },
+  { label: 'Графики работы', key: 'sidebar.workSchedules', icon: Calendar, path: '/admin/schedules' },
+  { label: 'Обратная связь', key: 'sidebar.feedback', icon: MessageSquare, path: '/admin/feedback' },
 ];
 
 const NAV_SUPERADMIN = [
-  { section: 'МОИ РАЗДЕЛЫ' },
-  { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
-  { section: 'УПРАВЛЕНИЕ' },
-  { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
-  { label: 'Пользователи', icon: Users, path: '/admin/users' },
-  { label: 'Роли и права', icon: Shield, path: '/admin/roles' },
-  { label: 'Зарплаты', icon: Wallet, path: '/salary' },
-  { label: 'Контент', icon: FileText, path: '/admin/content' },
-  { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
-  { label: 'Обратная связь', icon: MessageSquare, path: '/admin/feedback' },
-  { section: 'СИСТЕМА' },
-  { label: 'Система / Безопасность', icon: Settings, path: '/admin/system' },
-  { label: 'Интерфейс', icon: LayoutGrid, path: '/admin/interface' },
+  { section: 'МОИ РАЗДЕЛЫ', sectionKey: 'sidebar.section.my' },
+  { label: 'Главная', key: 'sidebar.home', icon: Home, path: '/dashboard' },
+  { label: 'Моя команда', key: 'sidebar.team', icon: Users, path: '/team' },
+  { label: 'Задачи', key: 'sidebar.tasks', icon: CheckSquare, path: '/tasks' },
+  { label: 'Посещаемость', key: 'sidebar.attendance', icon: ClipboardCheck, path: '/attendance' },
+  { label: 'Компания', key: 'sidebar.company', icon: Users, path: '/company' },
+  { label: 'График работы', key: 'sidebar.schedule', icon: Calendar, path: '/schedule' },
+
+  { section: 'УПРАВЛЕНИЕ', sectionKey: 'sidebar.section.manage' },
+  { label: 'Обзор', key: 'sidebar.overview', icon: LayoutGrid, path: '/admin/overview' },
+  { label: 'Пользователи', key: 'sidebar.users', icon: Users, path: '/admin/users' },
+  { label: 'Роли и права', key: 'sidebar.roles', icon: Shield, path: '/admin/roles' },
+  { label: 'Зарплата', key: 'sidebar.salary', icon: Wallet, path: '/salary' },
+  { label: 'Контент', key: 'sidebar.content', icon: FileText, path: '/admin/content' },
+  { label: 'Графики работы', key: 'sidebar.workSchedules', icon: Calendar, path: '/admin/schedules' },
+  { label: 'Обратная связь', key: 'sidebar.feedback', icon: MessageSquare, path: '/admin/feedback' },
+
+  { section: 'СИСТЕМА', sectionKey: 'sidebar.section.system' },
+  { label: 'Система / Безопасность', key: 'sidebar.systemSecurity', icon: Settings, path: '/admin/system' },
+  { label: 'Интерфейс', key: 'sidebar.interface', icon: LayoutGrid, path: '/admin/interface' },
 ];
 
 const NAV_MAP = {
   intern: NAV_INTERN,
   employee: NAV_EMPLOYEE,
   projectmanager: NAV_PM,
-  department_head: NAV_DEPARTMENT_HEAD,
   admin: NAV_ADMIN,
+  administrator: NAV_ADMIN,
+  systemadmin: NAV_ADMIN,
   superadmin: NAV_SUPERADMIN,
 };
 
@@ -113,50 +95,36 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [hideMenuPanelOpen, setHideMenuPanelOpen] = useState(false);
 
+  const normalizedRole = normalizeRole(user?.role);
   const canCustomizeHide =
-    user?.role === 'department_head' || user?.role === 'admin' || user?.role === 'projectmanager' || user?.role === 'employee';
-  const baseNav = NAV_MAP[user?.role] || NAV_INTERN;
+    normalizedRole === 'admin' ||
+    normalizedRole === 'administrator' ||
+    normalizedRole === 'projectmanager' ||
+    normalizedRole === 'employee';
+
+  const baseNavRaw = NAV_MAP[normalizedRole] || NAV_INTERN;
+  const canViewAttendance =
+    normalizedRole === 'admin' ||
+    normalizedRole === 'administrator' ||
+    normalizedRole === 'superadmin';
+
+  const baseNav = baseNavRaw.filter((item) => {
+    if (!item.path) return true;
+    if (item.path === '/attendance' && !canViewAttendance) return false;
+    return true;
+  });
+
   const nav = canCustomizeHide
     ? baseNav.filter((item) => item.path !== '/regulations' && item.path !== '/instructions')
     : baseNav;
 
   const handleHome = () => {
-    if (user?.role === 'department_head' || user?.role === 'admin' || user?.role === 'superadmin') {
-      navigate('/admin/overview');
-    }
+    if (isAdminRole(user?.role)) navigate('/admin/overview');
     else navigate('/dashboard');
   };
 
-  const translateNav = (label) => {
-    const map = {
-      'Главная': 'sidebar.home',
-      'Задачи': 'sidebar.tasks',
-      'Мои задачи': 'sidebar.myTasks',
-      'Задачи команды': 'sidebar.teamTasks',
-      'Зарплата': 'sidebar.salary',
-      'Компания': 'sidebar.company',
-      'Регламенты': 'sidebar.regulations',
-      'График работы': 'sidebar.schedule',
-      'Инструкция': 'sidebar.instructions',
-      'Обзор': 'sidebar.overview',
-      'Пользователи': 'sidebar.users',
-      'Роли и права': 'sidebar.roles',
-      'Контент': 'sidebar.content',
-      'Онбординг / Отчёты': 'sidebar.onboarding',
-      'График работы сотрудников': 'sidebar.workSchedules',
-      'Обратная связь': 'sidebar.feedback',
-      'Система / Безопасность': 'sidebar.systemSecurity',
-      'Интерфейс': 'sidebar.interface',
-    };
-    return t(map[label] || '', label);
-  };
-
-  const translateSection = (section) => {
-    if (section === 'МОИ РАЗДЕЛЫ') return t('sidebar.section.my', section);
-    if (section === 'УПРАВЛЕНИЕ') return t('sidebar.section.manage', section);
-    if (section === 'СИСТЕМА') return t('sidebar.section.system', section);
-    return section;
-  };
+  const translateNav = (item) => t(item.key || '', item.label);
+  const translateSection = (item) => t(item.sectionKey || '', item.section);
 
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -173,7 +141,7 @@ export default function Sidebar() {
         {nav.map((item, i) => {
           if (item.section) {
             if (collapsed) return null;
-            return <div key={i} className="nav-section-label">{translateSection(item.section)}</div>;
+            return <div key={i} className="nav-section-label">{translateSection(item)}</div>;
           }
 
           const Icon = item.icon;
@@ -186,10 +154,10 @@ export default function Sidebar() {
               key={item.path + item.label}
               className={`nav-item ${isActive ? 'active' : ''}`}
               onClick={() => navigate(item.path)}
-              title={collapsed ? translateNav(item.label) : ''}
+              title={collapsed ? translateNav(item) : ''}
             >
               <Icon className="nav-item-icon" size={17} />
-              {!collapsed && <span className="nav-item-label">{translateNav(item.label)}</span>}
+              {!collapsed && <span className="nav-item-label">{translateNav(item)}</span>}
             </div>
           );
         })}
@@ -200,20 +168,21 @@ export default function Sidebar() {
             <div
               className="nav-item"
               onClick={() => setHideMenuPanelOpen((v) => !v)}
-              title="Свернуть/развернуть блок скрытия"
+              title={t('sidebar.hideToggleTitle', 'Свернуть/развернуть блок скрытия')}
             >
               {hideMenuPanelOpen ? <ChevronLeft className="nav-item-icon" size={17} /> : <ChevronRight className="nav-item-icon" size={17} />}
               <span className="nav-item-label">{t('sidebar.hideToggle', 'Скрыть разделы')}</span>
             </div>
+
             {hideMenuPanelOpen && (
               <>
-                <div className="nav-item" onClick={() => navigate('/regulations')} title={t('sidebar.regulations', 'Regulations')}>
+                <div className="nav-item" onClick={() => navigate('/regulations')} title={t('sidebar.openRegulations', 'Открыть Регламенты')}>
                   <BookMarked className="nav-item-icon" size={17} />
-                  <span className="nav-item-label">{t('sidebar.regulations', 'Regulations')}</span>
+                  <span className="nav-item-label">{t('sidebar.regulations', 'Регламенты')}</span>
                 </div>
-                <div className="nav-item" onClick={() => navigate('/instructions')} title={t('sidebar.instructions', 'Instructions')}>
+                <div className="nav-item" onClick={() => navigate('/instructions')} title={t('sidebar.openInstructions', 'Открыть Инструкция')}>
                   <BookOpen className="nav-item-icon" size={17} />
-                  <span className="nav-item-label">{t('sidebar.instructions', 'Instructions')}</span>
+                  <span className="nav-item-label">{t('sidebar.instructions', 'Инструкция')}</span>
                 </div>
               </>
             )}

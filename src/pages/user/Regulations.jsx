@@ -1,220 +1,422 @@
-﻿import { useEffect, useMemo, useState } from 'react';
-import { Download, ExternalLink, X } from 'lucide-react';
-import MainLayout from '../../layouts/MainLayout';
-import api from '../../api/axios';
+﻿import MainLayout from '../../layouts/MainLayout';
+import { useEffect, useMemo, useState } from 'react';
+import { Download, ExternalLink, Globe, FileText, Link2, MessageSquare, ClipboardCheck, CheckCircle2 } from 'lucide-react';
 import { regulationsAPI } from '../../api/content';
+import { useAuth } from '../../context/AuthContext';
+import { useLocale } from '../../context/LocaleContext';
+import { isInternRole } from '../../utils/roles';
 
-function toAbsoluteMedia(url) {
-  if (!url) return '';
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-  const origin = apiBase.replace(/\/api\/?$/, '');
-  return `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+let BACKEND_ORIGIN = 'http://127.0.0.1:8000';
+try {
+  BACKEND_ORIGIN = new URL(API_BASE_URL).origin;
+} catch {
+  // keep default origin
 }
 
-function detectExt(url) {
+function safeList(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.data?.results)) return data.data.results;
+  if (Array.isArray(data?.data?.items)) return data.data.items;
+  return [];
+}
+
+function formatDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('ru-RU');
+}
+
+function isLikelyUrl(value) {
+  return /^https?:\/\//i.test(String(value || '')) || String(value || '').startsWith('/');
+}
+
+function normalizeOpenUrl(url) {
   if (!url) return '';
-  const clean = url.split('?')[0];
-  const i = clean.lastIndexOf('.');
-  if (i === -1) return '';
-  return clean.slice(i + 1).toLowerCase();
+  const raw = String(url).trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('/')) return `${BACKEND_ORIGIN}${raw}`;
+  return raw;
+}
+
+function toOpenUrl(raw) {
+  const actionUrl = raw?.action?.url || raw?.action_url || (typeof raw?.action === 'string' && isLikelyUrl(raw.action) ? raw.action : '');
+  const contentUrl =
+    raw?.content?.url ||
+    raw?.content_url ||
+    (typeof raw?.content === 'string' && isLikelyUrl(raw.content) ? raw.content : '') ||
+    raw?.external_url ||
+    raw?.url ||
+    raw?.file ||
+    raw?.file_url ||
+    raw?.document ||
+    '';
+
+  return normalizeOpenUrl(actionUrl || contentUrl || '');
+}
+
+function fileExtFromUrl(url) {
+  const clean = String(url || '').split('?')[0].split('#')[0];
+  const part = clean.split('.').pop();
+  return (part || '').toLowerCase();
+}
+
+function canInlinePreview(url) {
+  const ext = fileExtFromUrl(url);
+  return ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'txt'].includes(ext);
+}
+
+function normalizeReg(raw = {}) {
+  const typeRaw = String(raw.type || raw.kind || '').toLowerCase();
+  const type = typeRaw.includes('link') ? 'link' : 'file';
+  const openUrl = toOpenUrl(raw);
+
+  return {
+    id: raw.id,
+    title: raw.title || raw.name || raw.file_name || `Регламент #${raw.id}`,
+    description: raw.description || raw.desc || raw.summary || '',
+    type,
+    openUrl,
+    updatedAt: formatDate(raw.updated_at || raw.modified || raw.created_at || raw.date),
+    size: raw.size || raw.file_size || '',
+
+    isAcknowledged: Boolean(raw.is_acknowledged),
+    acknowledgedAt: formatDate(raw.acknowledged_at),
+    isOverdue: Boolean(raw.is_overdue),
+
+    quizRequired: Boolean(raw.quiz_required),
+    quizPassed: Boolean(raw.quiz_passed),
+    quizQuestion: raw.quiz_question || raw.quiz?.question || '',
+    quizOptions: Array.isArray(raw.quiz_options)
+      ? raw.quiz_options
+      : Array.isArray(raw.quiz?.options)
+        ? raw.quiz.options
+        : [],
+
+    reportRequiredToday: Boolean(raw.report_required_today),
+    reportSubmittedToday: Boolean(raw.report_submitted_today),
+  };
 }
 
 export default function Regulations() {
-  const [items, setItems] = useState([]);
+  const { user } = useAuth();
+  const { t, tr } = useLocale();
+  const isIntern = isInternRole(user?.role);
+
+  const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState(null);
-  const [downloadBusyId, setDownloadBusyId] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState('');
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState('');
+  const [error, setError] = useState('');
+  const [actionMsg, setActionMsg] = useState('');
+  const [busyId, setBusyId] = useState(null);
+  const [previewDoc, setPreviewDoc] = useState(null);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setLoading(true);
-        const res = await regulationsAPI.list();
-        if (!alive) return;
-        const list = Array.isArray(res.data) ? res.data : [];
-        setItems(
-          list.map((r) => {
-            const content = toAbsoluteMedia(r.content);
-            const ext = detectExt(content);
-            return {
-              id: r.id,
-              title: r.title,
-              description: r.description || '',
-              type: r.type,
-              content,
-              ext,
-            };
-          })
-        );
-      } catch {
-        if (alive) setItems([]);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const [quizDoc, setQuizDoc] = useState(null);
+  const [quizAnswer, setQuizAnswer] = useState('');
 
-  const sorted = useMemo(() => items.slice(), [items]);
-
-  useEffect(() => {
-    let isAlive = true;
-    let objectUrl = '';
-
-    const loadPreview = async () => {
-      if (!selected?.id || selected?.type === 'link') {
-        setPreviewUrl('');
-        setPreviewError('');
-        setPreviewLoading(false);
-        return;
-      }
-      setPreviewLoading(true);
-      setPreviewError('');
-      setPreviewUrl('');
-      try {
-        const res = await api.get(`/v1/regulations/${selected.id}/download/`, { responseType: 'blob' });
-        if (!isAlive) return;
-        objectUrl = window.URL.createObjectURL(res.data);
-        setPreviewUrl(objectUrl);
-      } catch {
-        if (!isAlive) return;
-        setPreviewError('Не удалось загрузить предпросмотр. Используйте кнопку "Скачать".');
-      } finally {
-        if (isAlive) setPreviewLoading(false);
-      }
-    };
-
-    loadPreview();
-
-    return () => {
-      isAlive = false;
-      if (objectUrl) window.URL.revokeObjectURL(objectUrl);
-    };
-  }, [selected?.id]);
-
-  const downloadRegulation = async (reg) => {
-    if (!reg?.id || reg?.type !== 'file') return;
-    setDownloadBusyId(reg.id);
+  const loadDocs = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const res = await api.get(`/v1/regulations/${reg.id}/download/`, { responseType: 'blob' });
-      const blob = res.data;
-      const blobUrl = window.URL.createObjectURL(blob);
-      const ext = reg.ext ? `.${reg.ext}` : '';
-      const filename = `${reg.title || 'regulation'}${ext}`.replace(/[\\/:*?"<>|]+/g, '_');
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(blobUrl);
+      const res = await regulationsAPI.list();
+      setDocs(safeList(res.data).map(normalizeReg));
+    } catch (err) {
+      setDocs([]);
+      setError(err?.response?.data?.detail || tr('Не удалось загрузить регламенты'));
     } finally {
-      setDownloadBusyId(null);
+      setLoading(false);
     }
   };
 
+  useEffect(() => {
+    loadDocs();
+  }, []);
+
+  const docsToShow = useMemo(() => docs, [docs]);
+
+  const withReload = async (docId, action, successMessage) => {
+    setBusyId(docId);
+    try {
+      await action();
+      setActionMsg(successMessage);
+      await loadDocs();
+    } catch (err) {
+      setActionMsg(err?.response?.data?.detail || tr('Операция не выполнена'));
+    } finally {
+      setBusyId(null);
+      setTimeout(() => setActionMsg(''), 3000);
+    }
+  };
+
+  const openRegulation = async (doc) => {
+    try {
+      const res = await regulationsAPI.detail(doc.id);
+      const detailed = normalizeReg(res.data || {});
+      setPreviewDoc(detailed);
+      if (!detailed.openUrl && !doc.openUrl) {
+        setActionMsg(tr('У документа нет content/action URL для открытия'));
+        setTimeout(() => setActionMsg(''), 3000);
+      }
+    } catch {
+      setPreviewDoc(doc);
+    }
+  };
+
+  const acknowledge = async (doc) => {
+    setBusyId(doc.id);
+    try {
+      await regulationsAPI.acknowledge(doc.id, { acknowledged: true });
+      setActionMsg(tr('Прочтение отмечено'));
+      await loadDocs();
+      if (isIntern && doc.quizRequired && !doc.quizPassed) {
+        setQuizDoc(doc);
+        setQuizAnswer('');
+      }
+    } catch (err) {
+      setActionMsg(err?.response?.data?.detail || tr('Операция не выполнена'));
+    } finally {
+      setBusyId(null);
+      setTimeout(() => setActionMsg(''), 3000);
+    }
+  };
+
+  const sendRegFeedback = async (doc) => {
+    const text = window.prompt(tr('Введите feedback по регламенту'));
+    if (!text?.trim()) return;
+
+    await withReload(
+      doc.id,
+      () => regulationsAPI.submitFeedback(doc.id, { text: text.trim(), message: text.trim(), feedback: text.trim() }),
+      tr('Feedback отправлен')
+    );
+  };
+
+  const submitQuiz = async (doc) => {
+    if (!isIntern) {
+      const answer = window.prompt(tr('Введите ответ для quiz/теста'));
+      if (!answer?.trim()) return;
+      await withReload(
+        doc.id,
+        () => regulationsAPI.submitQuiz(doc.id, { answer: answer.trim(), user_answer: answer.trim() }),
+        tr('Тест отправлен')
+      );
+      return;
+    }
+    setQuizDoc(doc);
+    setQuizAnswer('');
+  };
+
+  const submitInternQuiz = async () => {
+    if (!quizDoc) return;
+    const answer = String(quizAnswer || '').trim();
+    if (!answer) return;
+
+    await withReload(
+      quizDoc.id,
+      () => regulationsAPI.submitQuiz(quizDoc.id, { answer, user_answer: answer }),
+      tr('Тест отправлен')
+    );
+
+    setQuizDoc(null);
+    setQuizAnswer('');
+  };
+
+  const submitReadReport = async (doc) => {
+    const report = window.prompt(tr('Краткий отчет по прочтению'));
+    if (!report?.trim()) return;
+
+    await withReload(
+      doc.id,
+      () => regulationsAPI.submitReadReport(doc.id, { report: report.trim(), text: report.trim(), message: report.trim() }),
+      tr('Отчет отправлен')
+    );
+  };
+
   return (
-    <MainLayout title="Регламенты компании">
+    <MainLayout title={tr('Регламенты компании')}>
       <div className="page-header">
         <div>
-          <div className="page-title">Внутренние регламенты и инструкции</div>
-          <div className="page-subtitle">Список документов из backend</div>
+          <div className="page-title">{tr('Внутренние регламенты и инструкции')}</div>
+          <div className="page-subtitle">{tr('Список документов, подтверждение прочтения, quiz и отчеты')}</div>
         </div>
       </div>
 
-      {loading ? (
-        <div className="card"><div className="card-body">Загрузка...</div></div>
-      ) : (
-        <div className="reg-grid">
-          {sorted.map((reg) => (
-            <div key={reg.id} className="reg-card">
-              <div className="reg-title">{reg.title}</div>
-              <div className="reg-action" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                <button
-                  className="btn btn-outline btn-sm"
-                  type="button"
-                  onClick={() => {
-                    if (reg.type === 'link' && reg.content) {
-                      window.open(reg.content, '_blank', 'noopener,noreferrer');
-                      return;
-                    }
-                    setSelected(reg);
-                  }}
-                >
-                  <ExternalLink size={13} /> Подробнее
+      {error && <div style={{ marginBottom: 14, color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
+      {actionMsg && <div style={{ marginBottom: 14, color: actionMsg.toLowerCase().includes('не') ? 'var(--danger)' : 'var(--success)', fontSize: 13 }}>{actionMsg}</div>}
+
+      <div className="reg-grid">
+        {loading && <div style={{ color: 'var(--gray-500)', fontSize: 13 }}>{t('common.loading', 'Загрузка...')}</div>}
+        {!loading && docsToShow.length === 0 && <div style={{ color: 'var(--gray-500)', fontSize: 13 }}>{tr('Документы пока не добавлены')}</div>}
+
+        {!loading &&
+          docsToShow.map((doc) => (
+            <div key={doc.id} className="reg-card">
+              <div
+                className="reg-icon"
+                style={{
+                  background: doc.type === 'link' ? '#EDE9FE' : '#DBEAFE',
+                  color: doc.type === 'link' ? '#7C3AED' : '#2563EB',
+                }}
+              >
+                {doc.type === 'link' ? <Link2 size={18} /> : <FileText size={18} />}
+              </div>
+
+              <div className="reg-title">{doc.title}</div>
+              <div className="reg-desc">{doc.description || tr('Без описания')}</div>
+
+              <div style={{ marginBottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <span className={`badge ${doc.isAcknowledged ? 'badge-green' : 'badge-gray'}`}>
+                  {doc.isAcknowledged ? tr('Прочтено') : tr('Не прочитано')}
+                </span>
+                {doc.isOverdue && <span className="badge badge-red">{tr('Просрочено')}</span>}
+                {doc.quizRequired && <span className={`badge ${doc.quizPassed ? 'badge-green' : 'badge-yellow'}`}>{doc.quizPassed ? tr('Quiz пройден') : tr('Quiz обязателен')}</span>}
+                {doc.reportRequiredToday && (
+                  <span className={`badge ${doc.reportSubmittedToday ? 'badge-green' : 'badge-yellow'}`}>
+                    {doc.reportSubmittedToday ? tr('Отчет отправлен') : tr('Нужен отчет сегодня')}
+                  </span>
+                )}
+              </div>
+
+              {!!doc.updatedAt && <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--gray-400)' }}>{tr('Обновлено:')} {doc.updatedAt}</div>}
+
+              <div className="reg-action" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-outline btn-sm" onClick={() => openRegulation(doc)} disabled={busyId === doc.id}>
+                  <Globe size={13} /> {tr('Открыть')}
                 </button>
-                {reg.type === 'file' && (
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    type="button"
-                    onClick={() => downloadRegulation(reg)}
-                    disabled={downloadBusyId === reg.id}
-                  >
-                    <Download size={13} /> Скачать
+
+                {!doc.isAcknowledged && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => acknowledge(doc)} disabled={busyId === doc.id}>
+                    <CheckCircle2 size={13} /> {tr('Отметить прочтение')}
                   </button>
+                )}
+
+                {doc.quizRequired && !doc.quizPassed && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => submitQuiz(doc)} disabled={busyId === doc.id}>
+                    <ClipboardCheck size={13} /> {tr('Мини-тест')}
+                  </button>
+                )}
+
+                {doc.reportRequiredToday && !doc.reportSubmittedToday && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => submitReadReport(doc)} disabled={busyId === doc.id}>
+                    <FileText size={13} /> {tr('Отправить отчет')}
+                  </button>
+                )}
+
+                <button className="btn btn-secondary btn-sm" onClick={() => sendRegFeedback(doc)} disabled={busyId === doc.id}>
+                  <MessageSquare size={13} /> Feedback
+                </button>
+
+                {doc.openUrl && (
+                  <a className="btn btn-primary btn-sm" href={doc.openUrl} target="_blank" rel="noreferrer">
+                    {doc.type === 'link' ? <ExternalLink size={13} /> : <Download size={13} />} {doc.type === 'link' ? tr('Ссылка') : tr('Открыть файл')} {doc.size ? `(${doc.size})` : ''}
+                  </a>
                 )}
               </div>
             </div>
           ))}
-          {sorted.length === 0 ? (
-            <div className="card"><div className="card-body">Регламентов пока нет.</div></div>
-          ) : null}
+      </div>
+
+      {previewDoc && (
+        <div className="modal-overlay" onClick={() => setPreviewDoc(null)}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: '100vw',
+              width: '100vw',
+              height: '100vh',
+              borderRadius: 0,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div className="modal-header">
+              <div className="modal-title">{previewDoc.title}</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {previewDoc.openUrl && (
+                  <a className="btn btn-primary btn-sm" href={previewDoc.openUrl} target="_blank" rel="noreferrer">
+                    {tr('Открыть в новой вкладке')}
+                  </a>
+                )}
+                <button className="btn btn-secondary btn-sm" onClick={() => setPreviewDoc(null)}>
+                  {tr('Закрыть')}
+                </button>
+              </div>
+            </div>
+            <div className="modal-body" style={{ flex: 1, minHeight: 0 }}>
+              {previewDoc.openUrl ? (
+                canInlinePreview(previewDoc.openUrl) ? (
+                  <iframe
+                    src={previewDoc.openUrl}
+                    title={previewDoc.title}
+                    style={{ width: '100%', height: '100%', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)' }}
+                  />
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={{ color: 'var(--gray-500)' }}>
+                      {tr('Предпросмотр этого формата недоступен во встроенном окне. Откройте файл в новой вкладке.')}
+                    </div>
+                    <a className="btn btn-primary btn-sm" href={previewDoc.openUrl} target="_blank" rel="noreferrer" style={{ width: 'fit-content' }}>
+                      {tr('Открыть файл')}
+                    </a>
+                  </div>
+                )
+              ) : (
+                <div style={{ color: 'var(--gray-500)' }}>{tr('Для этого документа не передан URL в `content/action`.')}</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
-      {selected && (
-        <div className="modal-overlay" onClick={() => setSelected(null)}>
-          <div className="modal" style={{ maxWidth: 980, width: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
+      {quizDoc && (
+        <div className="modal-overlay" onClick={() => setQuizDoc(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620 }}>
             <div className="modal-header">
-              <div className="modal-title">{selected.title}</div>
-              <button className="btn-icon" type="button" onClick={() => setSelected(null)}><X size={18} /></button>
+              <div className="modal-title">{tr('Мини-тест:')} {quizDoc.title}</div>
+              <button className="btn btn-secondary btn-sm" onClick={() => setQuizDoc(null)}>
+                {tr('Закрыть')}
+              </button>
             </div>
-            <div className="modal-body">
-              {previewLoading ? (
-                <div style={{ fontSize: 14, color: 'var(--gray-600)' }}>Загрузка предпросмотра...</div>
-              ) : previewUrl ? (
-                <iframe
-                  title={selected.title}
-                  src={previewUrl}
-                  style={{ width: '100%', height: '65vh', border: '1px solid var(--gray-200)', borderRadius: '10px' }}
-                />
-              ) : previewError ? (
-                <div style={{ fontSize: 14, color: 'var(--gray-600)' }}>{previewError}</div>
-              ) : (
-                <div
-                  style={{
-                    maxHeight: '65vh',
-                    overflowY: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    lineHeight: 1.6,
-                    border: '1px solid var(--gray-200)',
-                    borderRadius: '10px',
-                    padding: 12,
-                  }}
-                >
-                  {selected.description || 'Нет содержимого.'}
+            <div className="modal-body" style={{ display: 'grid', gap: 12 }}>
+              <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>
+                {quizDoc.quizQuestion || tr('Ответьте на вопрос по регламенту')}
+              </div>
+              {Array.isArray(quizDoc.quizOptions) && quizDoc.quizOptions.length > 0 ? (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {quizDoc.quizOptions.map((opt, idx) => (
+                    <label key={`quiz-opt-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name={`quiz-${quizDoc.id}`}
+                        checked={quizAnswer === String(opt)}
+                        onChange={() => setQuizAnswer(String(opt))}
+                      />
+                      <span>{String(opt)}</span>
+                    </label>
+                  ))}
                 </div>
+              ) : (
+                <input
+                  className="form-input"
+                  placeholder={tr('Введите ваш ответ')}
+                  value={quizAnswer}
+                  onChange={(e) => setQuizAnswer(e.target.value)}
+                />
               )}
             </div>
-            {selected.type === 'file' && selected.content && (
-              <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
-                <button
-                  className="btn btn-primary btn-sm"
-                  type="button"
-                  onClick={() => downloadRegulation(selected)}
-                  disabled={downloadBusyId === selected.id}
-                >
-                  <Download size={13} /> Скачать
-                </button>
-              </div>
-            )}
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setQuizDoc(null)}>
+                {tr('Отмена')}
+              </button>
+              <button className="btn btn-primary" onClick={submitInternQuiz} disabled={!String(quizAnswer || '').trim()}>
+                {tr('Отправить ответ')}
+              </button>
+            </div>
           </div>
         </div>
       )}

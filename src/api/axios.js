@@ -1,63 +1,75 @@
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_URL || '/api';
-const CSRF_METHODS = ['post', 'put', 'patch', 'delete'];
-
-function getCookie(name) {
-  if (typeof document === 'undefined') return null;
-  const prefix = `${name}=`;
-  const chunks = document.cookie ? document.cookie.split(';') : [];
-  for (let i = 0; i < chunks.length; i += 1) {
-    const part = chunks[i].trim();
-    if (part.startsWith(prefix)) {
-      return decodeURIComponent(part.slice(prefix.length));
-    }
-  }
-  return null;
-}
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+const REFRESH_PATH = '/v1/auth/refresh/';
 
 const api = axios.create({
   baseURL: BASE_URL,
-  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach token automatically
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('access_token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  if (CSRF_METHODS.includes(String(config.method || '').toLowerCase())) {
-    const csrfToken = getCookie('csrftoken');
-    if (csrfToken) config.headers['X-CSRFToken'] = csrfToken;
+let refreshPromise = null;
+let redirectingToLogin = false;
+
+api.interceptors.request.use((config) => {
+  const skipAuth = Boolean(config?.skipAuth);
+  if (!skipAuth) {
+    const token = localStorage.getItem('access_token');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   if (config.data instanceof FormData) {
+    // Let browser set multipart boundary automatically.
     delete config.headers['Content-Type'];
-  } else if (!config.headers['Content-Type']) {
-    config.headers['Content-Type'] = 'application/json';
   }
   return config;
 });
 
-// Auto-refresh on 401
 api.interceptors.response.use(
-  res => res,
-  async error => {
-    const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+  (res) => res,
+  async (error) => {
+    const original = error.config || {};
+    const requestUrl = String(original.url || '');
+    const isLoginRequest = requestUrl.includes('/v1/accounts/login/');
+    const isRefreshRequest = requestUrl.includes(REFRESH_PATH);
+
+    if (error.response?.status === 401 && !original._retry && !isLoginRequest && !isRefreshRequest) {
       original._retry = true;
       const refresh = localStorage.getItem('refresh_token');
-      if (refresh) {
-        try {
-          const { data } = await axios.post(`${BASE_URL}/auth/token/refresh/`, { refresh });
-          localStorage.setItem('access_token', data.access);
-          original.headers.Authorization = `Bearer ${data.access}`;
-          return api(original);
-        } catch {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
+      if (!refresh) return Promise.reject(error);
+
+      try {
+        if (!refreshPromise) {
+          refreshPromise = axios
+            .post(`${BASE_URL}${REFRESH_PATH}`, { refresh })
+            .then(({ data }) => {
+              const accessToken = data.access || data.access_token;
+              if (!accessToken) throw new Error('No access token in refresh response');
+              localStorage.setItem('access_token', accessToken);
+              localStorage.setItem('onboarding_access_token', accessToken);
+              return accessToken;
+            })
+            .finally(() => {
+              refreshPromise = null;
+            });
+        }
+
+        const accessToken = await refreshPromise;
+        original.headers = original.headers || {};
+        original.headers.Authorization = `Bearer ${accessToken}`;
+        return api(original);
+      } catch {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('onboarding_access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('onboarding_role');
+        localStorage.removeItem('onboarding_landing');
+        if (!redirectingToLogin) {
+          redirectingToLogin = true;
           window.location.href = '/login';
         }
       }
     }
+
     return Promise.reject(error);
   }
 );

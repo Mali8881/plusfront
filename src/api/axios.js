@@ -141,9 +141,8 @@ api.interceptors.request.use((config) => {
   }
 
   if (config.data instanceof FormData) {
+    // Let browser set multipart boundary automatically.
     delete config.headers['Content-Type'];
-  } else if (!config.headers['Content-Type']) {
-    config.headers['Content-Type'] = 'application/json';
   }
 
   return config;

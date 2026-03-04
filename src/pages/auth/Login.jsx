@@ -1,10 +1,31 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Eye, EyeOff, User } from 'lucide-react';
+import { pathFromLanding, landingFromRole } from '../../utils/roles';
+
+const ROLE_COLORS = {
+  intern: { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
+  employee: { bg: '#F0FDF4', color: '#16A34A', border: '#BBF7D0' },
+  projectmanager: { bg: '#FAF5FF', color: '#7C3AED', border: '#DDD6FE' },
+  admin: { bg: '#FFF7ED', color: '#EA580C', border: '#FED7AA' },
+  administrator: { bg: '#FFF7ED', color: '#EA580C', border: '#FED7AA' },
+  systemadmin: { bg: '#ECFEFF', color: '#0E7490', border: '#A5F3FC' },
+  superadmin: { bg: '#FFF1F2', color: '#BE123C', border: '#FECDD3' },
+};
+
+const ROLE_ICONS = {
+  intern: '🎓',
+  employee: '💼',
+  projectmanager: '📋',
+  admin: '🛡️',
+  superadmin: '👑',
+};
+
+const FALLBACK = { bg: '#F9FAFB', color: '#6B7280', border: '#E5E7EB' };
 
 export default function Login() {
-  const { login, loading } = useAuth();
+  const { login, loading, mockUsers = [], USE_MOCK } = useAuth();
   const navigate = useNavigate();
   const [loginVal, setLoginVal] = useState('');
   const [password, setPassword] = useState('');
@@ -100,9 +121,57 @@ export default function Login() {
           </button>
         </form>
 
+        {USE_MOCK && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
+              <div style={{ flex: 1, height: 1, background: 'var(--gray-200)' }} />
+              <span style={{ fontSize: 12, color: 'var(--gray-400)', whiteSpace: 'nowrap' }}>Быстрый вход</span>
+              <div style={{ flex: 1, height: 1, background: 'var(--gray-200)' }} />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {mockUsers.map((u) => {
+                const c = ROLE_COLORS[u.role] || FALLBACK;
+                const icon = ROLE_ICONS[u.role] || '👤';
+                return (
+                  <button
+                    key={u.id}
+                    onClick={() => doLogin(u.login, u.password)}
+                    disabled={loading}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 14px',
+                      border: `1px solid ${c.border}`,
+                      borderRadius: 'var(--radius)',
+                      background: c.bg,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                    }}
+                  >
+                    <span style={{ fontSize: 20, flexShrink: 0 }}>{icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--gray-800)', marginBottom: 1 }}>{u.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{u.position_name || u.position || ''}</div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: `${c.color}20`, color: c.color, flexShrink: 0 }}>
+                      {u.roleLabel}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--gray-400)', textAlign: 'center' }}>
+              Пароль для всех аккаунтов: <b>1234</b>
+            </div>
+          </>
+        )}
+
         <div className="auth-footer">© 2025 В Плюсе. Внутренняя корпоративная платформа.</div>
       </div>
     </div>
   );
 }
-

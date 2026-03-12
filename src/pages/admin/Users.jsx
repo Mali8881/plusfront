@@ -1,478 +1,637 @@
-import { useEffect, useState } from 'react';
-import { useAuth } from '../../context/AuthContext';
+﻿import { useEffect, useMemo, useState } from 'react';
+import { Plus, Search, Pencil, Lock, Send, Check, Ban, X, MessageSquare } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
-import { USERS } from '../../data/mockData';
-import { Plus, Search, Pencil, Trash2, BarChart2, Lock, X, Check, Ban, Send } from 'lucide-react';
-import { upsertCustomMockUser } from '../../utils/mockUsers';
+import { useAuth } from '../../context/AuthContext';
+import {
+  usersAPI,
+  departmentsAPI,
+  subdivisionsAPI,
+  promotionRequestsAPI,
+} from '../../api/auth';
+import { regulationsAPI } from '../../api/content';
 
-const ROLE_LABELS = { intern: 'Стажёр', employee: 'Сотрудник', projectmanager: 'Проект-менеджер', admin: 'Администратор', superadmin: 'Суперадмин' };
-const ROLE_BADGE = { intern: 'badge-green', employee: 'badge-blue', projectmanager: 'badge-purple', admin: 'badge-blue', superadmin: 'badge-yellow' };
-const ROLE_ICON = { intern: '📖', admin: '🛡️', superadmin: '👑' };
-const PROMOTION_REQUESTS_KEY = 'vpluse_promotion_requests';
+const ROLE_LABELS = {
+  intern: 'Стажер',
+  employee: 'Сотрудник',
+  projectmanager: 'Тимлид',
+  department_head: 'Рук. отдела',
+  admin: 'Админ',
+  administrator: 'Администратор',
+  superadmin: 'Суперадмин',
+};
+
+const ROLE_BADGE = {
+  intern:         { bg: '#EFF6FF', color: '#2563EB' },
+  employee:       { bg: '#F0FDF4', color: '#16A34A' },
+  projectmanager: { bg: '#FAF5FF', color: '#7C3AED' },
+  department_head:{ bg: '#FFF7ED', color: '#EA580C' },
+  admin:          { bg: '#FFF7ED', color: '#EA580C' },
+  administrator:  { bg: '#FFF7ED', color: '#EA580C' },
+  superadmin:     { bg: '#FFF1F2', color: '#BE123C' },
+};
+
+const PRIVILEGED_ROLES = new Set(['department_head', 'admin', 'administrator', 'superadmin']);
+
+const EMPTY_FORM = {
+  name: '',
+  email: '',
+  department: '',
+  subdivision: '',
+  manager: '',
+  role: 'intern',
+  password: '',
+  notes: '',
+};
+
+function extractApiError(error, fallback) {
+  const data = error?.response?.data;
+  if (!data) return fallback;
+  if (typeof data === 'string') return data;
+  if (typeof data.detail === 'string') return data.detail;
+  if (typeof data.error === 'string') return data.error;
+
+  const firstField = Object.keys(data)[0];
+  if (!firstField) return fallback;
+  const value = data[firstField];
+  if (Array.isArray(value) && value.length) return String(value[0]);
+  if (typeof value === 'string') return value;
+  return fallback;
+}
+
+function splitName(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first_name: '', last_name: '' };
+  if (parts.length === 1) return { first_name: parts[0], last_name: '' };
+  return { first_name: parts[0], last_name: parts.slice(1).join(' ') };
+}
+
+function fixedSubdivisionLabelByRole(role) {
+  const map = {
+    projectmanager: 'Вся команда',
+    department_head: 'Весь отдел',
+    admin: 'Вся организация',
+    administrator: 'Вся организация',
+    superadmin: 'Вся система',
+  };
+  return map[role] || '-';
+}
+
+function mapUser(raw) {
+  return {
+    id: raw.id,
+    name: raw.full_name || raw.username,
+    email: raw.email || '',
+    role: raw.role || 'intern',
+    department: raw.department_name || '',
+    departmentId: raw.department || null,
+    position: raw.subdivision_name || raw.position_name || '',
+    positionId: raw.position || null,
+    subdivisionId: raw.subdivision || null,
+    subdivisionName: raw.subdivision_name || '',
+    managerId: raw.manager || null,
+    managerName: raw.manager_name || '',
+    status: raw.is_active ? 'active' : 'blocked',
+    notes: raw.notes || '',
+  };
+}
 
 export default function AdminUsers() {
   const { user, isSuperAdmin } = useAuth();
-  const isAdminOrSuper = isSuperAdmin || user?.role === 'admin';
-  const allowedPositions = isSuperAdmin
-    ? ['Стажёр', 'Frontend-разработчик', 'Менеджер продаж', 'Руководитель отдела']
-    : ['Стажёр'];
-  const [users, setUsers] = useState(USERS);
+  const [users, setUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [subdivisions, setSubdivisions] = useState([]);
+  const [promotionRequests, setPromotionRequests] = useState([]);
+  const [internRequests, setInternRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filterDepartment, setFilterDepartment] = useState('all');
-  const [filterPosition, setFilterPosition] = useState('all');
-  const [filterRole, setFilterRole] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterDept, setFilterDept] = useState('');
+  const [filterSub, setFilterSub] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram: '', department: '', position: '', role: 'intern', password: '', status: 'active' });
-  const [promotionRequests, setPromotionRequests] = useState(() => {
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [error, setError] = useState('');
+  const [savingUser, setSavingUser] = useState(false);
+
+  const myRole = String(user?.role || '').toLowerCase();
+  const isSuperOrAdmin = isSuperAdmin || myRole === 'administrator';
+  const isDepartmentHead = myRole === 'department_head';
+  const canAssignAdminRoles = isSuperOrAdmin || myRole === 'admin';
+  const ownDepartmentId = user?.department ? String(user.department) : '';
+
+  const canEdit = (target) => {
+    if (isSuperOrAdmin) return true;
+    if (isDepartmentHead || myRole === 'admin') return !PRIVILEGED_ROLES.has(target.role);
+    return false;
+  };
+
+  const loadAll = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const raw = localStorage.getItem(PROMOTION_REQUESTS_KEY);
-      return raw ? JSON.parse(raw) : [];
+      const [usersRes, depRes, subRes, promotionRes, internReqRes] = await Promise.allSettled([
+        usersAPI.list(),
+        departmentsAPI.list(),
+        subdivisionsAPI.list({ is_active: true }),
+        promotionRequestsAPI.list(),
+        regulationsAPI.adminInternRequests({ status: 'pending' }),
+      ]);
+
+      const usersData = usersRes.status === 'fulfilled' ? usersRes.value?.data : [];
+      const departmentsData = depRes.status === 'fulfilled' ? depRes.value?.data : [];
+      const subdivisionsData = subRes.status === 'fulfilled' ? subRes.value?.data : [];
+      const promotionsData = promotionRes.status === 'fulfilled' ? promotionRes.value?.data : [];
+      const internReqData = internReqRes.status === 'fulfilled' ? internReqRes.value?.data : [];
+
+      setUsers((Array.isArray(usersData) ? usersData : []).map(mapUser));
+      setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
+      setSubdivisions(Array.isArray(subdivisionsData) ? subdivisionsData : []);
+      setPromotionRequests(Array.isArray(promotionsData) ? promotionsData : []);
+      setInternRequests(Array.isArray(internReqData) ? internReqData : []);
+
+      const failed = [];
+      if (usersRes.status === 'rejected') failed.push('пользователи');
+      if (depRes.status === 'rejected') failed.push('отделы');
+      if (subRes.status === 'rejected') failed.push('подотделы');
+      if (promotionRes.status === 'rejected') failed.push('заявки на перевод');
+      if (failed.length) setError(`Часть данных не загружена: ${failed.join(', ')}.`);
     } catch {
-      return [];
+      setError('Не удалось загрузить данные страницы.');
+    } finally {
+      setLoading(false);
     }
-  });
+  };
 
-  useEffect(() => {
-    localStorage.setItem(PROMOTION_REQUESTS_KEY, JSON.stringify(promotionRequests));
-  }, [promotionRequests]);
+  useEffect(() => { loadAll(); }, []);
 
-  const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+  const filterSubOptions = useMemo(() => {
+    if (!filterDept) return subdivisions;
+    return subdivisions.filter((s) => Number(s.department_id) === Number(filterDept));
+  }, [subdivisions, filterDept]);
 
-  const baseUsers = isAdminOrSuper
-    ? users.filter(u => u.role !== 'superadmin')
-    : users.filter(u => u.role === 'intern');
-  const departmentOptions = Array.from(new Set(baseUsers.map(u => u.department).filter(Boolean)));
-  const positionOptions = Array.from(new Set(baseUsers.map(u => u.position).filter(Boolean)));
+  const filtered = useMemo(() => {
+    let list = users;
+    if (filterDept) list = list.filter((u) => Number(u.departmentId) === Number(filterDept));
+    if (filterSub)  list = list.filter((u) => Number(u.subdivisionId) === Number(filterSub));
+    const q = search.trim().toLowerCase();
+    if (q) list = list.filter((u) =>
+      u.name.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      u.department.toLowerCase().includes(q) ||
+      u.position.toLowerCase().includes(q) ||
+      (u.notes || '').toLowerCase().includes(q)
+    );
+    return list;
+  }, [users, search, filterDept, filterSub]);
 
-  const filtered = baseUsers.filter(u => {
-    const matchSearch = !search
-      || u.name.toLowerCase().includes(search.toLowerCase())
-      || u.email.toLowerCase().includes(search.toLowerCase())
-      || (u.department || '').toLowerCase().includes(search.toLowerCase())
-      || (u.position || '').toLowerCase().includes(search.toLowerCase());
-    const matchRole = filterRole === 'all' || u.role === filterRole;
-    const matchStatus = filterStatus === 'all' || u.status === filterStatus;
-    const matchDepartment = filterDepartment === 'all' || u.department === filterDepartment;
-    const matchPosition = filterPosition === 'all' || u.position === filterPosition;
-    return matchSearch && matchRole && matchStatus && matchDepartment && matchPosition;
-  });
+  const pending = useMemo(
+    () => promotionRequests.filter((r) => r.status === 'pending'),
+    [promotionRequests]
+  );
+  const pendingInternRequests = useMemo(
+    () => internRequests.filter((r) => String(r.status || '').toLowerCase() === 'pending'),
+    [internRequests]
+  );
 
   const openAdd = () => {
     setEditUser(null);
+    setForm(EMPTY_FORM);
+    setShowModal(true);
+  };
+
+  const openEdit = (target) => {
+    setEditUser(target);
     setForm({
-      name: '',
-      email: '',
-      phone: '',
-      telegram: '',
-      department: '',
-      position: isSuperAdmin ? '' : 'Стажёр',
-      role: 'intern',
+      name: target.name,
+      email: target.email,
+      department: target.departmentId ? String(target.departmentId) : '',
+      subdivision: target.subdivisionId ? String(target.subdivisionId) : '',
+      manager: target.managerId ? String(target.managerId) : '',
+      role: target.role || 'intern',
       password: '',
-      status: 'active',
+      notes: target.notes || '',
     });
     setShowModal(true);
   };
-  const openEdit = (u) => { setEditUser(u); setForm({ name: u.name, email: u.email, phone: u.phone || '', telegram: u.telegram || '', department: u.department || '', position: u.position || '', role: u.role, password: '', status: u.status }); setShowModal(true); };
-  
-  const handleSave = () => {
-    if (!form.name || !form.email || !form.department || !form.position) return;
-    if (editUser) {
-      const payload = isSuperAdmin ? form : { ...form, role: editUser.role };
-      setUsers(us => us.map(u => u.id === editUser.id ? { ...u, ...payload } : u));
-      upsertCustomMockUser({
-        id: editUser.id,
-        name: payload.name,
-        email: payload.email,
-        login: payload.email,
-        username: payload.email,
-        role: payload.role,
-        roleLabel: ROLE_LABELS[payload.role] || payload.role,
-        department: payload.department,
-        department_name: payload.department,
-        position: payload.position,
-        position_name: payload.position,
-        phone: payload.phone,
-        telegram: payload.telegram,
-        status: payload.status,
-        password: form.password || '1234',
-      });
-      showToast('Пользователь обновлён');
-    } else {
-      const newUser = {
-        ...form,
-        role: isSuperAdmin ? form.role : 'intern',
-        position: isSuperAdmin ? form.position : 'Стажёр',
-        id: Date.now()
-      };
-      setUsers(us => [...us, newUser]);
-      upsertCustomMockUser({
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email,
-        login: newUser.email,
-        username: newUser.email,
-        role: newUser.role,
-        roleLabel: ROLE_LABELS[newUser.role] || newUser.role,
-        department: newUser.department,
-        department_name: newUser.department,
-        position: newUser.position,
-        position_name: newUser.position,
-        phone: newUser.phone,
-        telegram: newUser.telegram,
-        status: newUser.status,
-        password: form.password || '1234',
-      });
-      showToast(`Пользователь «${form.name}» успешно добавлен.`);
+
+  const saveUser = async () => {
+    if (savingUser) return;
+    if (!form.name || !form.email) return;
+    const name = splitName(form.name);
+    let departmentPayload = form.department || null;
+    if (isDepartmentHead) {
+      if (form.role === 'intern') departmentPayload = null;
+      else if (form.role === 'employee' || form.role === 'projectmanager') departmentPayload = ownDepartmentId || null;
     }
-    setShowModal(false);
-  };
-
-  const toggleStatus = (id) => {
-    setUsers(us => us.map(u => u.id === id ? { ...u, status: u.status === 'active' ? 'blocked' : 'active' } : u));
-  };
-
-  const pendingRequests = promotionRequests.filter(r => r.status === 'pending');
-  const hasPendingForUser = (userId) => pendingRequests.some(r => r.userId === userId);
-
-  const handleSendPromotionRequest = (internUser) => {
-    if (internUser.role !== 'intern') return;
-    if (hasPendingForUser(internUser.id)) {
-      showToast(`По ${internUser.name} уже есть заявка на рассмотрении.`, 'error');
-      return;
-    }
-    const req = {
-      id: Date.now(),
-      userId: internUser.id,
-      userName: internUser.name,
-      status: 'pending',
-      createdAt: new Date().toLocaleString('ru-RU'),
-      requestedBy: user?.name || 'Администратор',
-      requestedByRole: user?.role || 'admin',
-      reason: 'Стажировка завершена. Запрос на перевод в сотрудники.',
+    const supportsSubdivision = form.role === 'intern' || form.role === 'employee';
+    const payload = {
+      username: form.email,
+      email: form.email,
+      first_name: name.first_name,
+      last_name: name.last_name,
+      department: departmentPayload,
+      position: null,
+      subdivision: supportsSubdivision ? (form.subdivision || null) : null,
+      manager: form.role === 'projectmanager' ? null : (form.manager || null),
+      role: form.role,
+      notes: form.notes || '',
     };
-    setPromotionRequests(rs => [req, ...rs]);
-    showToast(`Заявка на перевод ${internUser.name} отправлена суперадминистратору.`);
+    if (form.password) payload.password = form.password;
+    try {
+      setSavingUser(true);
+      if (editUser) await usersAPI.update(editUser.id, payload);
+      else await usersAPI.create(payload);
+      setShowModal(false);
+      await loadAll();
+    } catch (e) {
+      setError(extractApiError(e, 'Не удалось сохранить пользователя.'));
+    } finally {
+      setSavingUser(false);
+    }
   };
 
-  const handleApprovePromotion = (requestId) => {
-    const req = promotionRequests.find(r => r.id === requestId);
-    if (!req) return;
-    setPromotionRequests(rs => rs.map(r => r.id === requestId ? { ...r, status: 'approved', reviewedAt: new Date().toISOString() } : r));
-    setUsers(us => us.map(u => u.id === req.userId ? { ...u, role: 'employee' } : u));
-    showToast(`Заявка от ${req.userName} одобрена. Роль обновлена на "Сотрудник".`);
+  const toggleStatus = async (id) => {
+    try {
+      await usersAPI.toggleStatus(id);
+      await loadAll();
+    } catch {
+      setError('Не удалось изменить статус.');
+    }
   };
 
-  const handleRejectPromotion = (requestId) => {
-    const req = promotionRequests.find(r => r.id === requestId);
-    if (!req) return;
-    setPromotionRequests(rs => rs.map(r => r.id === requestId ? { ...r, status: 'rejected', reviewedAt: new Date().toISOString() } : r));
-    showToast(`Заявка от ${req.userName} отклонена.`, 'error');
+  const sendPromotion = async (targetUser) => {
+    try {
+      await promotionRequestsAPI.create({
+        user_id: targetUser.id,
+        requested_role: 'employee',
+        reason: 'Заявка на перевод стажера в сотрудники.',
+      });
+      await loadAll();
+    } catch {
+      setError('Не удалось отправить заявку.');
+    }
   };
+
+  const handleApprove = async (id) => {
+    try {
+      await promotionRequestsAPI.approve(id, { comment: 'Одобрено' });
+      await loadAll();
+    } catch {
+      setError('Не удалось одобрить заявку.');
+    }
+  };
+
+  const handleReject = async (id) => {
+    try {
+      await promotionRequestsAPI.reject(id, { comment: 'Отклонено' });
+      await loadAll();
+    } catch {
+      setError('Не удалось отклонить заявку.');
+    }
+  };
+
+  const approveInternCompletion = async (id) => {
+    try {
+      await regulationsAPI.approveInternRequest(id, {});
+      await loadAll();
+    } catch {
+      setError('Не удалось подтвердить стажировку.');
+    }
+  };
+
+  const managerOptions = useMemo(() => {
+    const effectiveDepartment = isDepartmentHead
+      ? ((form.role === 'employee' || form.role === 'projectmanager') ? ownDepartmentId : '')
+      : form.department;
+    return users.filter((u) => {
+      if (u.role !== 'projectmanager') return false;
+      if (!effectiveDepartment) return true;
+      return Number(u.departmentId) === Number(effectiveDepartment);
+    });
+  }, [users, form.department, form.role, isDepartmentHead, ownDepartmentId]);
+
+  const subdivisionOptions = useMemo(() => {
+    const effectiveDepartment = isDepartmentHead
+      ? ((form.role === 'employee' || form.role === 'projectmanager') ? ownDepartmentId : (form.department || ownDepartmentId))
+      : form.department;
+    if (!effectiveDepartment) return subdivisions;
+    return subdivisions.filter((s) => Number(s.department_id) === Number(effectiveDepartment));
+  }, [subdivisions, form.department, form.role, isDepartmentHead, ownDepartmentId]);
 
   return (
     <MainLayout title="Админ-панель · Пользователи">
       <div className="page-header">
         <div>
-          <div className="page-title">{isAdminOrSuper ? 'Сотрудники' : 'Управление пользователями'}</div>
-          <div className="page-subtitle">
-            {isAdminOrSuper
-              ? 'Список сотрудников: отдел, должность и поиск.'
-              : 'Администратор работает только со стажёрами.'}
-          </div>
+          <div className="page-title">Пользователи</div>
+          <div className="page-subtitle">{`Управление сотрудниками · ${filtered.length} из ${users.length}`}</div>
         </div>
-        {!isAdminOrSuper && <button className="btn btn-primary" onClick={openAdd}><Plus size={15} /> Добавить пользователя</button>}
+        <button className="btn btn-primary" onClick={openAdd} disabled={savingUser}><Plus size={15} /> Добавить</button>
       </div>
 
-      {isSuperAdmin && (
+      {error ? <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div> : null}
+
+      {isSuperOrAdmin ? (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-header">
-            <span className="card-title">Заявки стажёров на перевод в сотрудники</span>
-            <span className="badge badge-blue">{pendingRequests.length} на рассмотрении</span>
+            <span className="card-title">Заявки на перевод</span>
+            <span className="badge badge-blue">{pending.length}</span>
           </div>
           <div className="card-body">
-            {pendingRequests.length === 0 && (
-              <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>Новых заявок нет.</div>
-            )}
-            {pendingRequests.map(req => (
-              <div key={req.id} style={{ border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{req.userName}</div>
-                    <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Отправлено: {req.createdAt || '—'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Инициатор: {req.requestedBy || '—'}</div>
-                    {req.reason && <div style={{ marginTop: 6, fontSize: 13, color: 'var(--gray-700)' }}>{req.reason}</div>}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    <button className="btn btn-primary btn-sm" onClick={() => handleApprovePromotion(req.id)}><Check size={14} /> Одобрить</button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleRejectPromotion(req.id)}><Ban size={14} /> Отклонить</button>
-                  </div>
+            {pending.length === 0 ? <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>Новых заявок нет.</div> : null}
+            {pending.map((req) => (
+              <div key={req.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{req.username}</div>
+                  <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{req.reason || 'Без комментария'}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-primary btn-sm" onClick={() => handleApprove(req.id)}><Check size={14} /> Одобрить</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => handleReject(req.id)}><Ban size={14} /> Отклонить</button>
                 </div>
               </div>
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* Filters */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-body" style={{ padding: '14px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
-              <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Поиск по имени, email или должности..." value={search} onChange={e => setSearch(e.target.value)} />
-            </div>
-            {isAdminOrSuper && (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <select className="form-select" value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)} style={{ minWidth: 170 }}>
-                  <option value="all">Все отделы</option>
-                  {departmentOptions.map(dep => <option key={dep} value={dep}>{dep}</option>)}
-                </select>
-                <select className="form-select" value={filterPosition} onChange={e => setFilterPosition(e.target.value)} style={{ minWidth: 190 }}>
-                  <option value="all">Все должности</option>
-                  {positionOptions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
-                </select>
-              </div>
-            )}
-            {!isAdminOrSuper && <div style={{ display: 'flex', gap: 8 }}>
-              {(isSuperAdmin
-                ? ['all', 'employee', 'admin', 'intern', 'blocked']
-                : ['all', 'intern', 'blocked']
-              ).map(f => {
-                const labels = {
-                  all: 'Все',
-                  employee: 'Сотрудники',
-                  admin: 'Администраторы',
-                  intern: 'Стажёры',
-                  blocked: 'Заблокированные',
-                };
-                const dots = {
-                  all: '',
-                  employee: '#16A34A',
-                  admin: '#3B82F6',
-                  intern: '#22C55E',
-                  blocked: '#EF4444',
-                };
-                return (
-                  <button key={f} onClick={() => { if (f === 'blocked') setFilterStatus(filterStatus === 'blocked' ? 'all' : 'blocked'); else { setFilterRole(filterRole === f ? 'all' : f); setFilterStatus('all'); } }}
-                    style={{ padding: '6px 14px', borderRadius: 20, border: '1px solid var(--gray-200)', background: (filterRole === f || (f === 'blocked' && filterStatus === 'blocked')) ? 'var(--gray-100)' : 'transparent', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 500, color: 'var(--gray-700)' }}>
-                    {dots[f] && <span style={{ width: 8, height: 8, borderRadius: '50%', background: dots[f], display: 'inline-block' }} />}
-                    {labels[f]}
+      {(user?.role === 'admin' || user?.role === 'administrator' || user?.role === 'superadmin') ? (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <span className="card-title">Заявки стажеров на завершение</span>
+            <span className="badge badge-blue">{pendingInternRequests.length}</span>
+          </div>
+          <div className="card-body">
+            {pendingInternRequests.length === 0 ? <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>Новых заявок нет.</div> : null}
+            {pendingInternRequests.map((req) => (
+              <div key={req.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{req.username || `ID ${req.user}`}</div>
+                  <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                    Отправлено: {String(req.requested_at || '').slice(0, 16).replace('T', ' ') || '—'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-primary btn-sm" onClick={() => approveInternCompletion(req.id)}>
+                    <Check size={14} /> Подтвердить в сотрудника
                   </button>
-                );
-              })}
-              <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                Фильтры
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-body" style={{ padding: '14px 20px' }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: '1 1 220px' }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
+              <input
+                className="form-input"
+                style={{ paddingLeft: 32 }}
+                placeholder="Поиск по имени, email, заметкам..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <select
+              className="form-select"
+              style={{ flex: '0 1 180px' }}
+              value={filterDept}
+              onChange={(e) => { setFilterDept(e.target.value); setFilterSub(''); }}
+            >
+              <option value="">Все отделы</option>
+              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <select
+              className="form-select"
+              style={{ flex: '0 1 180px' }}
+              value={filterSub}
+              onChange={(e) => setFilterSub(e.target.value)}
+            >
+              <option value="">Все подотделы</option>
+              {filterSubOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            {(filterDept || filterSub || search) ? (
+              <button className="btn btn-secondary btn-sm" onClick={() => { setSearch(''); setFilterDept(''); setFilterSub(''); }}>
+                <X size={13} /> Сбросить
               </button>
-            </div>}
+            ) : null}
           </div>
         </div>
       </div>
 
-      {/* Table */}
       <div className="card">
         <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>ПОЛЬЗОВАТЕЛЬ</th>
-                <th>ДОЛЖНОСТЬ</th>
-                <th>ОТДЕЛ</th>
-                {!isAdminOrSuper && <th>РОЛЬ</th>}
-                {!isAdminOrSuper && <th>СТАТУС</th>}
-                {!isAdminOrSuper && <th>ДЕЙСТВИЯ</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(u => (
-                <tr key={u.id}>
-                  <td>
-                    <div className="user-cell">
-                      <div className="avatar" style={{ width: 34, height: 34, fontSize: 12 }}>
-                        {u.name.split(' ').map(p => p[0]).join('').slice(0, 2)}
-                      </div>
-                      <div>
-                        <div className="user-cell-name">{u.name}</div>
-                        <div className="user-cell-email">{u.email}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{u.position}</div>
-                  </td>
-                  <td><div style={{ fontSize: 13, fontWeight: 500 }}>{u.department}</div></td>
-                  {!isAdminOrSuper && (
-                    <td>
-                      <span className={`badge ${ROLE_BADGE[u.role] || 'badge-gray'}`}>
-                        {ROLE_ICON[u.role] && <span style={{ marginRight: 2 }}>{ROLE_ICON[u.role]}</span>}
-                        {ROLE_LABELS[u.role] || u.role}
-                      </span>
-                    </td>
-                  )}
-                  {!isAdminOrSuper && (
-                    <td>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                        <span className={`status-dot ${u.status === 'active' ? 'green' : 'red'}`} />
-                        {u.status === 'active' ? 'Активен' : 'Заблокирован'}
-                      </span>
-                    </td>
-                  )}
-                  {!isAdminOrSuper && (
-                    <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {u.role !== 'superadmin' && (
-                          <>
-                            <button className="btn-icon" title="Редактировать" onClick={() => openEdit(u)}><Pencil size={14} /></button>
-                            <button className="btn-icon" title="Статистика"><BarChart2 size={14} /></button>
-                            {!isSuperAdmin && u.role === 'intern' && (
-                              <button
-                                className="btn-icon"
-                                title={hasPendingForUser(u.id) ? 'Заявка уже отправлена' : 'Отправить запрос суперадмину'}
-                                onClick={() => handleSendPromotionRequest(u)}
-                                disabled={hasPendingForUser(u.id)}
-                                style={{ color: hasPendingForUser(u.id) ? 'var(--gray-300)' : 'var(--primary)' }}
-                              >
-                                <Send size={14} />
-                              </button>
-                            )}
-                            {isSuperAdmin && (
-                              <button className="btn-icon" title={u.status === 'active' ? 'Заблокировать' : 'Разблокировать'} onClick={() => toggleStatus(u.id)} style={{ color: u.status === 'active' ? 'var(--danger)' : 'var(--success)' }}>
-                                <Lock size={14} />
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  )}
+          {loading ? (
+            <div style={{ padding: 16 }}>Загрузка...</div>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Пользователь</th>
+                  <th>Отдел</th>
+                  <th>Подотдел</th>
+                  <th>Роль</th>
+                  <th>Заметка</th>
+                  <th>Статус</th>
+                  <th>Действия</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div style={{ padding: '12px 20px', fontSize: 13, color: 'var(--gray-500)', borderTop: '1px solid var(--gray-200)' }}>
-          Показано 1–{filtered.length} из {baseUsers.length} пользователей
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--gray-400)', padding: 24 }}>Пользователи не найдены</td></tr>
+                ) : null}
+                {filtered.map((u) => {
+                  const badge = ROLE_BADGE[u.role] || { bg: '#F3F4F6', color: '#6B7280' };
+                  return (
+                    <tr key={u.id}>
+                      <td>
+                        <div className="user-cell">
+                          <div className="avatar" style={{ width: 34, height: 34, fontSize: 12 }}>
+                            {(u.name || '?').split(' ').map((p) => p[0]).join('').slice(0, 2)}
+                          </div>
+                          <div>
+                            <div className="user-cell-name">{u.name}</div>
+                            <div className="user-cell-email">{u.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: 13 }}>{u.department || '—'}</td>
+                      <td style={{ fontSize: 13 }}>{u.subdivisionName || '—'}</td>
+                      <td>
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: badge.bg, color: badge.color }}>
+                          {ROLE_LABELS[u.role] || u.role}
+                        </span>
+                      </td>
+                      <td style={{ maxWidth: 160 }}>
+                        {u.notes ? (
+                          <span title={u.notes} style={{ fontSize: 12, color: 'var(--gray-600)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <MessageSquare size={12} color="var(--gray-400)" style={{ flexShrink: 0 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.notes}</span>
+                          </span>
+                        ) : <span style={{ color: 'var(--gray-300)', fontSize: 12 }}>—</span>}
+                      </td>
+                      <td>
+                        <span style={{
+                          fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20,
+                          background: u.status === 'active' ? '#F0FDF4' : '#FEF2F2',
+                          color: u.status === 'active' ? '#16A34A' : '#DC2626',
+                        }}>
+                          {u.status === 'active' ? 'Активен' : 'Заблокирован'}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {canEdit(u) ? (
+                            <button className="btn-icon" title="Редактировать" onClick={() => openEdit(u)}><Pencil size={14} /></button>
+                          ) : null}
+                          <button className="btn-icon" title="Блок/разблок" onClick={() => toggleStatus(u.id)}><Lock size={14} /></button>
+                          {!isSuperOrAdmin && u.role === 'intern' ? (
+                            <button className="btn-icon" title="Заявка на перевод" onClick={() => sendPromotion(u)}><Send size={14} /></button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
-      {/* Modal */}
-      {showModal && (
+      {showModal ? (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <div className="modal-title">{editUser ? 'Редактирование пользователя' : 'Добавление нового пользователя'}</div>
+              <div className="modal-title">{editUser ? 'Редактирование пользователя' : 'Новый пользователь'}</div>
               <button className="btn-icon" onClick={() => setShowModal(false)}><X size={18} /></button>
             </div>
             <div className="modal-body">
-              <div className="modal-section-label">ОСНОВНАЯ ИНФОРМАЦИЯ</div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                <div className="avatar" style={{ width: 56, height: 56, fontSize: 18, border: '2px solid var(--gray-200)' }}>
-                  {form.name ? form.name.split(' ').map(p => p[0]).join('').slice(0, 2) : '?'}
-                </div>
-                <button className="btn btn-secondary btn-sm">Загрузить фото</button>
-                {editUser && <button className="btn btn-sm" style={{ color: 'var(--danger)', background: 'none' }}>Удалить</button>}
-              </div>
-
-              <div className="grid-2" style={{ marginBottom: 12 }}>
-                <div className="form-group">
-                  <label className="form-label">Фамилия Имя</label>
-                  <input className="form-input" placeholder="Иванов Иван" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Email (Логин)</label>
-                  <input className="form-input" placeholder="example@vpluse.kg" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-                </div>
-              </div>
-              <div className="grid-2" style={{ marginBottom: 12 }}>
-                <div className="form-group">
-                  <label className="form-label">Телефон</label>
-                  <input className="form-input" placeholder="+996 ..." value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Telegram</label>
-                  <input className="form-input" placeholder="@username" value={form.telegram} onChange={e => setForm(f => ({ ...f, telegram: e.target.value }))} />
-                </div>
-              </div>
-              <div className="grid-2" style={{ marginBottom: 16 }}>
-                <div className="form-group">
-                  <label className="form-label">Отдел</label>
-                  <select className="form-select" value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))}>
-                    <option value="">Выберите отдел</option>
-                    <option>Разработка</option><option>Продажи</option><option>Маркетинг</option><option>HR</option><option>Логистика</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Должность</label>
-                  <select className="form-select" value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} disabled={!isSuperAdmin}>
-                    <option value="">Выберите должность</option>
-                    {allowedPositions.map(pos => <option key={pos}>{pos}</option>)}
-                  </select>
-                  {!isSuperAdmin && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--gray-500)' }}>Для администратора доступна только должность «Стажёр».</div>}
-                </div>
-              </div>
-
-              {editUser
-                ? <div className="modal-section-label">РОЛЬ И ПРАВА ДОСТУПА</div>
-                : <div className="modal-section-label">НАСТРОЙКА ДОСТУПА</div>
-              }
-
-              {!editUser && (
-                <div className="grid-2" style={{ marginBottom: 12 }}>
-                  <div className="form-group">
-                    <label className="form-label">Пароль</label>
-                    <input className="form-input" type="password" placeholder="Задайте пароль" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Повторите пароль</label>
-                    <input className="form-input" type="password" placeholder="Повторите пароль" />
-                  </div>
-                </div>
-              )}
-
-              <div className="modal-section-label">РОЛЬ В СИСТЕМЕ</div>
               <div className="grid-2">
                 <div className="form-group">
-                  <label className="form-label">Роль в системе</label>
-                  <select className="form-select" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} disabled={!isSuperAdmin}>
-                    <option value="intern">Стажёр</option>
-                    <option value="employee">Сотрудник</option>
-                    <option value="projectmanager">Проект-менеджер</option>
-                    <option value="admin">Администратор</option>
-                    {isSuperAdmin && <option value="superadmin">Суперадмин</option>}
-                  </select>
-                  {!isSuperAdmin && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--gray-500)' }}>Администратор может создавать только стажёров.</div>}
+                  <label className="form-label">Имя</label>
+                  <input className="form-input" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Статус учётной записи</label>
-                  <select className="form-select" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                    <option value="active">Активен</option>
-                    <option value="blocked">Заблокирован</option>
-                  </select>
+                  <label className="form-label">Email</label>
+                  <input className="form-input" value={form.email} onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))} />
                 </div>
               </div>
+              <div className="grid-2" style={{ marginTop: 10 }}>
+                <div className="form-group">
+                  <label className="form-label">Отдел</label>
+                  <select
+                    className="form-select"
+                    value={
+                      isDepartmentHead
+                        ? ((form.role === 'employee' || form.role === 'projectmanager') ? ownDepartmentId : '')
+                        : form.department
+                    }
+                    onChange={(e) => setForm((prev) => ({ ...prev, department: e.target.value }))}
+                    disabled={isDepartmentHead}
+                  >
+                    <option value="">-</option>
+                    {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Подотдел</label>
+                  {form.role === 'intern' || form.role === 'employee' ? (
+                    <select
+                      className="form-select"
+                      value={form.subdivision}
+                      onChange={(e) => setForm((prev) => ({ ...prev, subdivision: e.target.value }))}
+                    >
+                      <option value="">-</option>
+                      {subdivisionOptions.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input className="form-input" value={fixedSubdivisionLabelByRole(form.role) || '-'} disabled />
+                  )}
+                </div>
+              </div>
+              <div className="grid-2" style={{ marginTop: 10 }}>
+                <div className="form-group">
+                  <label className="form-label">Роль</label>
+                  <select
+                    className="form-select"
+                    value={form.role}
+                    onChange={(e) => {
+                      const nextRole = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        role: nextRole,
+                        manager: nextRole === 'projectmanager' ? '' : prev.manager,
+                        subdivision: (nextRole === 'intern' || nextRole === 'employee') ? prev.subdivision : '',
+                      }));
+                    }}
+                  >
+                    <option value="intern">Стажер</option>
+                    <option value="employee">Сотрудник</option>
+                    <option value="projectmanager">Тимлид</option>
+                    {canAssignAdminRoles ? <option value="department_head">Рук. отдела</option> : null}
+                    {canAssignAdminRoles ? <option value="admin">Админ</option> : null}
+                    {isSuperOrAdmin ? <option value="administrator">Администратор</option> : null}
+                    {isSuperAdmin ? <option value="superadmin">Суперадмин</option> : null}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Пароль {editUser ? '(опционально)' : ''}</label>
+                  <input className="form-input" type="password" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid-2" style={{ marginTop: 10 }}>
+                <div className="form-group">
+                  <label className="form-label">Тимлид (руководитель)</label>
+                  <select
+                    className="form-select"
+                    value={form.manager}
+                    onChange={(e) => setForm((prev) => ({ ...prev, manager: e.target.value }))}
+                    disabled={form.role === 'projectmanager'}
+                  >
+                    <option value="">— не выбрано —</option>
+                    {managerOptions.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Текущий руководитель</label>
+                  <input
+                    className="form-input"
+                    value={editUser?.managerName || '—'}
+                    disabled
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginTop: 10 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <MessageSquare size={13} /> Заметки / комментарий
+                </label>
+                <textarea
+                  className="form-input"
+                  style={{ resize: 'vertical', minHeight: 72, fontFamily: 'inherit', fontSize: 13 }}
+                  value={form.notes}
+                  onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Внутренние заметки (видны только администраторам)"
+                  rows={3}
+                />
+              </div>
+
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Отмена</button>
-              <button className="btn btn-primary" onClick={handleSave}>
-                {editUser ? 'Сохранить изменения' : 'Создать пользователя'}
+              <button className="btn btn-primary" onClick={saveUser} disabled={savingUser || !form.name || !form.email}>
+                {savingUser ? 'Сохранение...' : 'Сохранить'}
               </button>
             </div>
           </div>
         </div>
-      )}
-
-      {toast && (
-        <div className="toast toast-success">
-          <div>
-            <div className="toast-title">Успешно</div>
-            <div className="toast-msg">{toast.msg}</div>
-          </div>
-        </div>
-      )}
+      ) : null}
     </MainLayout>
   );
 }

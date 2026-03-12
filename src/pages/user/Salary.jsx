@@ -1,497 +1,469 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, DollarSign, Pencil, Plus, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { usersAPI } from '../../api/auth';
+import { payrollAPI } from '../../api/payroll';
 import MainLayout from '../../layouts/MainLayout';
-import { DollarSign, Pencil, Check, X } from 'lucide-react';
-import { getAttendanceStore } from '../../utils/attendance';
-import { getAssignedScheduleForUser } from '../../utils/scheduleApproval';
 
-const fmt = (n) => (n || 0).toLocaleString('ru-RU') + ' KGS';
-const SETTINGS_KEY = 'vpluse_salary_settings_v1';
+const MONTHS_RU = [
+  'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+  'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
+];
 
-const STATUS_COLORS = {
-  paid: { color: '#16A34A', bg: '#D1FAE5', label: 'Выплачено' },
-  pending: { color: '#D97706', bg: '#FEF9C3', label: 'Ожидает' },
-  delayed: { color: '#EF4444', bg: '#FEE2E2', label: 'Задержка' },
+// Значения соответствуют backend PayType: hourly | minute | fixed_salary
+const EMPLOYMENT_OPTIONS = [
+  { value: 'fixed_salary', label: 'Оклад' },
+  { value: 'hourly', label: 'Почасовая' },
+  { value: 'minute', label: 'Поминутная' },
+];
+
+const PERIOD_STATUS_META = {
+  draft: { label: 'Рассчитано', className: 'badge-yellow' },
+  calculated: { label: 'Рассчитано', className: 'badge-yellow' },
+  locked: { label: 'Закрыто', className: 'badge-blue' },
+  paid: { label: 'Выплачено', className: 'badge-green' },
 };
 
-const PAY_TYPE_LABELS = {
-  fixed: 'Оклад',
-  hourly: 'Почасовая',
-  minute: 'Поминутная',
-};
+const amountFmt = (value) => `${Number(value || 0).toLocaleString('ru-RU')} KGS`;
+const todayMeta = () => ({ year: new Date().getFullYear(), month: new Date().getMonth() + 1 });
 
-// История выплат и бонусы
-const SALARY_DATA = {
-  5: { name: 'Мария К.', role: 'Суперадминистратор', dept: 'Управление', history: [
-    { month: 'Январь 2026', bonus: 30000, status: 'paid' },
-    { month: 'Декабрь 2025', bonus: 25000, status: 'paid' },
-  ]},
-  9: { name: 'Админ А.', role: 'Администратор', dept: 'Управление', history: [
-    { month: 'Январь 2026', bonus: 12000, status: 'paid' },
-    { month: 'Декабрь 2025', bonus: 10000, status: 'paid' },
-  ]},
-  2: { name: 'Айбек Усупов', role: 'Сотрудник', dept: 'Отдел холодных продаж', history: [
-    { month: 'Январь 2026', bonus: 5000, status: 'paid' },
-    { month: 'Декабрь 2025', bonus: 8000, status: 'paid' },
-  ]},
-  3: { name: 'Султаналиев Максат', role: 'Проект-менеджер', dept: 'Отдел маркетинга', history: [
-    { month: 'Январь 2026', bonus: 15000, status: 'paid' },
-    { month: 'Декабрь 2025', bonus: 20000, status: 'paid' },
-  ]},
-  4: { name: 'Иван С.', role: 'Руководитель', dept: 'Управление', history: [
-    { month: 'Январь 2026', bonus: 20000, status: 'paid' },
-    { month: 'Декабрь 2025', bonus: 25000, status: 'paid' },
-  ]},
-};
+function monthLabel(year, month, withYearWord = false) {
+  const name = MONTHS_RU[Math.max(1, Math.min(12, Number(month))) - 1] || '';
+  return withYearWord ? `${name} ${year} г.` : `${name} ${year}`;
+}
 
-const DEFAULT_SETTINGS = {
-  5: { payType: 'fixed', baseSalary: 180000, hourlyRate: 500, minuteRate: 8, bonus: 30000, penalty: 0, status: 'paid' },
-  9: { payType: 'fixed', baseSalary: 110000, hourlyRate: 350, minuteRate: 6, bonus: 12000, penalty: 0, status: 'paid' },
-  2: { payType: 'fixed', baseSalary: 80000, hourlyRate: 300, minuteRate: 5, bonus: 5000, penalty: 0, status: 'paid' },
-  3: { payType: 'hourly', baseSalary: 120000, hourlyRate: 350, minuteRate: 6, bonus: 15000, penalty: 0, status: 'paid' },
-  4: { payType: 'fixed', baseSalary: 150000, hourlyRate: 400, minuteRate: 7, bonus: 20000, penalty: 0, status: 'paid' },
-};
-
-const ROLE_FALLBACK_SETTINGS = {
-  superadmin: { payType: 'fixed', baseSalary: 180000, hourlyRate: 500, minuteRate: 8, bonus: 30000, penalty: 0, status: 'paid' },
-  admin: { payType: 'fixed', baseSalary: 110000, hourlyRate: 350, minuteRate: 6, bonus: 12000, penalty: 0, status: 'paid' },
-  projectmanager: { payType: 'hourly', baseSalary: 120000, hourlyRate: 350, minuteRate: 6, bonus: 15000, penalty: 0, status: 'paid' },
-  employee: { payType: 'fixed', baseSalary: 80000, hourlyRate: 300, minuteRate: 5, bonus: 5000, penalty: 0, status: 'paid' },
-  intern: { payType: 'fixed', baseSalary: 40000, hourlyRate: 180, minuteRate: 3, bonus: 0, penalty: 0, status: 'pending' },
-};
-
-const readSettings = () => {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : DEFAULT_SETTINGS;
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-};
-
-const saveSettings = (settings) => {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-};
-
-const depKey = (u) => String(u?.department_name || u?.department || '').trim().toLowerCase();
-
-const timeToMin = (v) => {
-  if (!v || typeof v !== 'string' || !v.includes(':')) return null;
-  const [h, m] = v.split(':').map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  return h * 60 + m;
-};
-
-const overlapMinutes = (aStart, aEnd, bStart, bEnd) => {
-  const start = Math.max(aStart, bStart);
-  const end = Math.min(aEnd, bEnd);
-  return Math.max(0, end - start);
-};
-
-const getBreakDeductionForDate = (userId, dateKey, checkInIso, checkOutIso) => {
-  const assigned = getAssignedScheduleForUser(userId);
-  const schedule = assigned?.schedule;
-  if (!schedule) return 0;
-
-  const dayDate = new Date(`${dateKey}T00:00:00`);
-  const dayOfWeek = dayDate.getDay() === 0 ? 7 : dayDate.getDay();
-  const dayPlan = (schedule.daysPlan || []).find((d) => Number(d.dayOfWeek) === Number(dayOfWeek));
-  if (!dayPlan || dayPlan.isOff) return 0;
-
-  const workStart = new Date(checkInIso).getHours() * 60 + new Date(checkInIso).getMinutes();
-  const workEnd = new Date(checkOutIso).getHours() * 60 + new Date(checkOutIso).getMinutes();
-  if (workEnd <= workStart) return 0;
-
-  let deduction = 0;
-
-  const lunchStart = timeToMin(dayPlan.lunchStart);
-  const lunchEnd = timeToMin(dayPlan.lunchEnd);
-  if (lunchStart != null && lunchEnd != null && lunchEnd > lunchStart) {
-    deduction += overlapMinutes(workStart, workEnd, lunchStart, lunchEnd);
-  }
-
-  if (Array.isArray(dayPlan.breaks)) {
-    dayPlan.breaks.forEach((br) => {
-      if (!br) return;
-      if (typeof br === 'string' && br.includes('-')) {
-        const [s, e] = br.split('-');
-        const bStart = timeToMin((s || '').trim());
-        const bEnd = timeToMin((e || '').trim());
-        if (bStart != null && bEnd != null && bEnd > bStart) {
-          deduction += overlapMinutes(workStart, workEnd, bStart, bEnd);
-        }
-        return;
-      }
-      const bStart = timeToMin(br.start);
-      const bEnd = timeToMin(br.end);
-      if (bStart != null && bEnd != null && bEnd > bStart) {
-        deduction += overlapMinutes(workStart, workEnd, bStart, bEnd);
-      }
-    });
-  }
-
-  return Math.max(0, deduction);
-};
-
-const getWorkedTimeInMonth = (userId, year, month) => {
-  const store = getAttendanceStore();
-  const rows = store?.[String(userId)] || {};
-  let minutes = 0;
-  Object.entries(rows).forEach(([dateKey, rec]) => {
-    const dt = new Date(`${dateKey}T00:00:00`);
-    if (dt.getFullYear() !== year || dt.getMonth() !== month) return;
-    if (!rec?.checkIn || !rec?.checkOut) return;
-    const total = Math.max(0, Math.round((new Date(rec.checkOut).getTime() - new Date(rec.checkIn).getTime()) / 60000));
-    const deduction = getBreakDeductionForDate(userId, dateKey, rec.checkIn, rec.checkOut);
-    minutes += Math.max(0, total - deduction);
-  });
-  return {
-    minutes,
-    hours: Number((minutes / 60).toFixed(2)),
-  };
-};
-
-const computeBase = (paySetting, workedMinutes, workedHours) => {
-  if (!paySetting) return 0;
-  if (paySetting.payType === 'hourly') return Math.round(workedHours * (Number(paySetting.hourlyRate) || 0));
-  if (paySetting.payType === 'minute') return Math.round(workedMinutes * (Number(paySetting.minuteRate) || 0));
-  return Number(paySetting.baseSalary) || 0;
-};
-
-const buildFallbackSalaryData = (u) => {
-  if (!u) return null;
-  return {
-    name: u.name || u.username || 'Пользователь',
-    role: u.roleLabel || u.role || 'Сотрудник',
-    dept: u.department_name || u.department || 'Без отдела',
-    history: [
-      { month: 'Январь 2026', bonus: 0, status: 'pending' },
-      { month: 'Декабрь 2025', bonus: 0, status: 'paid' },
-    ],
-  };
-};
-
-const getEffectiveSalarySettings = (userId, role, settings) =>
-  settings[String(userId)] ||
-  DEFAULT_SETTINGS[String(userId)] ||
-  ROLE_FALLBACK_SETTINGS[role] ||
-  ROLE_FALLBACK_SETTINGS.employee;
-
-function MySalary({ user, settings }) {
-  const userId = user?.id;
-  const data = SALARY_DATA[userId] || buildFallbackSalaryData(user);
+function monthSelectOptions(count = 24) {
   const now = new Date();
-  const worked = getWorkedTimeInMonth(userId, now.getFullYear(), now.getMonth());
-  const userSettings = getEffectiveSalarySettings(userId, user?.role, settings);
+  const items = [];
+  for (let i = 0; i < count; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const year = d.getFullYear();
+    const month = d.getMonth() + 1;
+    items.push({ key: `${year}-${String(month).padStart(2, '0')}`, year, month });
+  }
+  return items;
+}
 
-  if (!data || !userSettings) {
+function statusBadge(status) {
+  const meta = PERIOD_STATUS_META[status] || { label: status || '-', className: 'badge-gray' };
+  return <span className={`badge ${meta.className}`}>{meta.label}</span>;
+}
+
+function isAdminRole(role) {
+  return role === 'department_head' || role === 'admin' || role === 'administrator' || role === 'superadmin';
+}
+
+function MetricCard({ title, value, hint, borderColor = 'var(--gray-200)' }) {
+  return (
+    <div className="card" style={{ borderTop: `3px solid ${borderColor}` }}>
+      <div className="card-body">
+        <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 6 }}>{title}</div>
+        <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1 }}>{value}</div>
+        {hint ? <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 8 }}>{hint}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function MySalaryView({ entry, loading, error, selectedYear, selectedMonth }) {
+  if (loading) return <div className="card"><div className="card-body">Загрузка...</div></div>;
+  if (error) return <div className="card"><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div>;
+  if (!entry) {
     return (
       <div className="card">
-        <div className="card-body" style={{ textAlign: 'center', padding: 60 }}>
-          <DollarSign size={40} style={{ color: 'var(--gray-200)', marginBottom: 12 }} />
-          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--gray-500)' }}>Данные о зарплате не найдены</div>
+        <div className="card-body" style={{ textAlign: 'center', padding: 56 }}>
+          <DollarSign size={42} style={{ color: 'var(--gray-300)', marginBottom: 8 }} />
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--gray-600)' }}>За выбранный период данных по зарплате пока нет.</div>
         </div>
       </div>
     );
   }
 
-  const base = computeBase(userSettings, worked.minutes, worked.hours);
-  const bonus = Number(userSettings.bonus) || 0;
-  const penalty = Number(userSettings.penalty) || 0;
-  const total = base + bonus - penalty;
-  const st = STATUS_COLORS[userSettings.status || 'paid'];
-
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 20 }}>
-        <div className="card" style={{ borderTop: '3px solid #16A34A' }}>
-          <div className="card-body">
-            <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 6 }}>Итого за текущий месяц</div>
-            <div style={{ fontSize: 26, fontWeight: 800 }}>{fmt(total)}</div>
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--gray-500)' }}>
-              Тип: {PAY_TYPE_LABELS[userSettings.payType]}
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-body">
-            <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 6 }}>Начисление</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{fmt(base)}</div>
-            <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 6 }}>
-              {userSettings.payType === 'hourly' && `${userSettings.hourlyRate} KGS/час`}
-              {userSettings.payType === 'minute' && `${userSettings.minuteRate} KGS/минута`}
-              {userSettings.payType === 'fixed' && 'Фиксированный оклад'}
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-body">
-            <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 6 }}>Отработано / Премия</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{worked.hours} ч / {fmt(bonus)}</div>
-            <div style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>Штраф: {fmt(penalty)}</div>
-            <div style={{ fontSize: 12, color: st.color, marginTop: 6 }}>{st.label}</div>
-          </div>
-        </div>
+      <div className="stats-grid" style={{ marginBottom: 14 }}>
+        <MetricCard title="К выплате" value={amountFmt(entry.total_amount)} hint={`Период: ${monthLabel(selectedYear, selectedMonth, true)}`} borderColor="#16A34A" />
+        <MetricCard title="Начисление" value={amountFmt(entry.salary_amount)} hint="Базовая сумма без вычета авансов" borderColor="#2563EB" />
+        <MetricCard title="Авансы" value={amountFmt(entry.advances)} hint="Учитываются при итоговой выплате" borderColor="#D97706" />
+        <MetricCard title="Норма / Отработано" value={`${entry.worked_days}/${entry.planned_days} дн`} hint={`Статус: ${PERIOD_STATUS_META[entry.period?.status]?.label || entry.period?.status || '-'}`} borderColor="#7C3AED" />
       </div>
-
       <div className="card">
-        <div className="card-header"><span className="card-title">История выплат</span></div>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr><th>МЕСЯЦ</th><th>ТИП</th><th>СТАВКА</th><th>ПРЕМИЯ</th><th>ШТРАФ</th><th>СТАТУС</th></tr>
-            </thead>
-            <tbody>
-              {data.history.map((row, i) => (
-                <tr key={i}>
-                  <td>{row.month}</td>
-                  <td>{PAY_TYPE_LABELS[userSettings.payType]}</td>
-                  <td>
-                    {userSettings.payType === 'hourly' && `${userSettings.hourlyRate} KGS/час`}
-                    {userSettings.payType === 'minute' && `${userSettings.minuteRate} KGS/минута`}
-                    {userSettings.payType === 'fixed' && fmt(userSettings.baseSalary)}
-                  </td>
-                  <td>{fmt(row.bonus || 0)}</td>
-                  <td>{fmt(userSettings.penalty || 0)}</td>
-                  <td><span className={`badge ${STATUS_COLORS[row.status || 'paid'].color === '#16A34A' ? 'badge-green' : 'badge-yellow'}`}>{STATUS_COLORS[row.status || 'paid'].label}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="card-header"><span className="card-title">Информация о расчете</span></div>
+        <div className="card-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <div style={{ marginBottom: 6 }}>Сотрудник: <b>{entry.username}</b></div>
+            <div style={{ marginBottom: 6 }}>Начисление: <b>{amountFmt(entry.salary_amount)}</b></div>
+            <div style={{ marginBottom: 6 }}>К выплате: <b>{amountFmt(entry.total_amount)}</b></div>
+            <div style={{ marginBottom: 6 }}>Статус: <b>{PERIOD_STATUS_META[entry.period?.status]?.label || '-'}</b></div>
+          </div>
+          <div>
+            <div style={{ marginBottom: 6 }}>Период: <b>{monthLabel(selectedYear, selectedMonth, true)}</b></div>
+            <div style={{ marginBottom: 6 }}>Авансы: <b>{amountFmt(entry.advances)}</b></div>
+            <div style={{ marginBottom: 6 }}>Отработано дней: <b>{entry.worked_days}</b></div>
+            <div style={{ marginBottom: 6 }}>Норма дней: <b>{entry.planned_days}</b></div>
+          </div>
         </div>
       </div>
     </>
   );
 }
 
-function AllSalaries({ rowsFilter = null, title = 'Настройка зарплаты сотрудников' }) {
-  const [settings, setSettings] = useState(readSettings);
-  const [modal, setModal] = useState(false);
-  const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState({ payType: 'fixed', baseSalary: '', hourlyRate: '', minuteRate: '', bonus: '', penalty: '', status: 'paid' });
+function SalaryProfileModal({ opened, mode, users, profile, selectedUserId, onClose, onSubmit }) {
+  const [form, setForm] = useState({ user: '', rate: '', pay_type: 'hourly' });
 
-  const now = new Date();
-  const rows = useMemo(() => {
-    const all = Object.entries(SALARY_DATA).map(([id, d]) => {
-      const sid = String(id);
-      const cfg = settings[sid] || DEFAULT_SETTINGS[sid] || DEFAULT_SETTINGS[2];
-      const worked = getWorkedTimeInMonth(Number(id), now.getFullYear(), now.getMonth());
-      const base = computeBase(cfg, worked.minutes, worked.hours);
-      const bonus = Number(cfg.bonus) || 0;
-      const penalty = Number(cfg.penalty) || 0;
-      return {
-        id: Number(id),
-        name: d.name,
-        role: d.role,
-        dept: d.dept,
-        payType: cfg.payType,
-        hourlyRate: cfg.hourlyRate,
-        minuteRate: cfg.minuteRate,
-        baseSalary: cfg.baseSalary,
-        workedHours: worked.hours,
-        workedMinutes: worked.minutes,
-        base,
-        bonus,
-        penalty,
-        total: base + bonus - penalty,
-        status: cfg.status || 'paid',
-      };
-    });
-    return rowsFilter ? all.filter(rowsFilter) : all;
-  }, [settings, now, rowsFilter]);
+  useEffect(() => {
+    if (!opened) return;
+    if (mode === 'edit' && profile) {
+      const rate = profile.hourly_rate || profile.fixed_salary || profile.minute_rate || 0;
+      setForm({ user: String(profile.user), rate: String(rate), pay_type: profile.pay_type || 'hourly' });
+      return;
+    }
+    setForm({ user: selectedUserId ? String(selectedUserId) : '', rate: '', pay_type: 'hourly' });
+  }, [opened, mode, profile, selectedUserId]);
 
-  const totalFund = rows.reduce((s, x) => s + x.total, 0);
+  if (!opened) return null;
 
-  const openEdit = (row) => {
-    setEditId(row.id);
-    setForm({
-      payType: row.payType,
-      baseSalary: String(row.baseSalary || 0),
-      hourlyRate: String(row.hourlyRate || 0),
-      minuteRate: String(row.minuteRate || 0),
-      bonus: String(row.bonus || 0),
-      penalty: String(row.penalty || 0),
-      status: row.status || 'paid',
-    });
-    setModal(true);
+  const submit = () => {
+    const pay_type = form.pay_type;
+    const rateVal = Number(form.rate) || 0;
+    const payload = {
+      user_id: Number(form.user),
+      pay_type,
+      ...(pay_type === 'hourly' && { hourly_rate: rateVal }),
+      ...(pay_type === 'minute' && { minute_rate: rateVal }),
+      ...(pay_type === 'fixed_salary' && { fixed_salary: rateVal }),
+    };
+    onSubmit(payload);
   };
 
-  const handleSave = () => {
-    if (!editId) return;
-    const next = {
-      ...settings,
-      [String(editId)]: {
-        payType: form.payType,
-        baseSalary: Number(form.baseSalary) || 0,
-        hourlyRate: Number(form.hourlyRate) || 0,
-        minuteRate: Number(form.minuteRate) || 0,
-        bonus: Number(form.bonus) || 0,
-        penalty: Number(form.penalty) || 0,
-        status: form.status,
-      },
-    };
-    setSettings(next);
-    saveSettings(next);
-    setModal(false);
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div className="modal-header">
+          <div className="modal-title">{mode === 'create' ? 'Добавить ставку' : 'Изменить ставку'}</div>
+          <button className="btn-icon" type="button" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="modal-body">
+          <div className="form-group">
+            <label className="form-label">Сотрудник</label>
+            <select className="form-select" disabled={mode === 'edit'} value={form.user} onChange={(e) => setForm((p) => ({ ...p, user: e.target.value }))}>
+              <option value="">Выберите сотрудника</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.full_name || u.username || `#${u.id}`}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Модель оплаты</label>
+            <select className="form-select" value={form.pay_type} onChange={(e) => setForm((p) => ({ ...p, pay_type: e.target.value }))}>
+              {EMPLOYMENT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Ставка (KGS)</label>
+            <input className="form-input" type="number" min="0" value={form.rate} onChange={(e) => setForm((p) => ({ ...p, rate: e.target.value }))} />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" type="button" onClick={onClose}>Отмена</button>
+          <button className="btn btn-primary" type="button" onClick={submit} disabled={!form.user}>
+            <Check size={14} /> Сохранить
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamSalaryView({ year, month, rows, profiles, users, loading, error, onGenerate, onCreateProfile, onUpdateProfile, onSetPeriodStatus, canChangeStatus }) {
+  const [modalOpened, setModalOpened] = useState(false);
+  const [modalMode, setModalMode] = useState('create');
+  const [profileForEdit, setProfileForEdit] = useState(null);
+  const [selectedUserId, setSelectedUserId] = useState(null);
+
+  const profileMap = useMemo(() => {
+    const map = new Map();
+    profiles.forEach((item) => map.set(Number(item.user), item));
+    return map;
+  }, [profiles]);
+
+  const rowMap = useMemo(() => {
+    const map = new Map();
+    rows.forEach((item) => map.set(Number(item.user), item));
+    return map;
+  }, [rows]);
+
+  const usersMap = useMemo(() => {
+    const map = new Map();
+    users.forEach((item) => map.set(Number(item.id), item));
+    rows.forEach((item) => { const id = Number(item.user); if (!map.has(id)) map.set(id, { id, full_name: item.username, username: item.username }); });
+    profiles.forEach((item) => { const id = Number(item.user); if (!map.has(id)) map.set(id, { id, full_name: item.username, username: item.username }); });
+    return map;
+  }, [users, rows, profiles]);
+
+  const salaryRows = useMemo(() => {
+    const ids = new Set([...rowMap.keys(), ...profileMap.keys()]);
+    return [...ids].map((id) => ({
+      id,
+      payroll: rowMap.get(id) || null,
+      profile: profileMap.get(id) || null,
+      user: usersMap.get(id) || { id, full_name: `#${id}` },
+    })).sort((a, b) => {
+      const an = (a.user.full_name || a.user.username || '').toLowerCase();
+      const bn = (b.user.full_name || b.user.username || '').toLowerCase();
+      return an.localeCompare(bn, 'ru');
+    });
+  }, [rowMap, profileMap, usersMap]);
+
+  const period = rows[0]?.period || null;
+  const totalFund = rows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+  const paidCount = rows.filter((row) => row.period?.status === 'paid').length;
+  const pendingCount = rows.length - paidCount;
+
+  const usersWithoutProfile = useMemo(() => [...usersMap.values()].filter((u) => !profileMap.has(Number(u.id))), [usersMap, profileMap]);
+
+  const openCreateModal = () => { setModalMode('create'); setProfileForEdit(null); setSelectedUserId(usersWithoutProfile[0]?.id || null); setModalOpened(true); };
+  const openEditModal = (profile) => { setModalMode('edit'); setProfileForEdit(profile); setSelectedUserId(profile.user); setModalOpened(true); };
+
+  const submitModal = async (payload) => {
+    if (modalMode === 'edit' && profileForEdit) {
+      await onUpdateProfile(profileForEdit.id, payload);
+    } else {
+      await onCreateProfile(payload);
+    }
+    setModalOpened(false);
+  };
+
+  const setPeriodStatus = async (status) => {
+    if (!period?.id) return;
+    await onSetPeriodStatus(period.id, status);
   };
 
   return (
     <>
-      <div style={{ marginBottom: 20 }}>
-        <div className="card"><div className="card-body"><div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Фонд оплаты труда (авторасчёт)</div><div style={{ fontSize: 24, fontWeight: 800 }}>{fmt(totalFund)}</div></div></div>
+      {error && <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div>}
+
+      <div className="stats-grid" style={{ marginBottom: 14 }}>
+        <MetricCard title="Фонд оплаты" value={amountFmt(totalFund)} hint={`Период: ${monthLabel(year, month, true)}`} borderColor="#16A34A" />
+        <MetricCard title="Записей" value={String(rows.length)} hint="Сотрудников в расчете" borderColor="#2563EB" />
+        <MetricCard title="Выплачено" value={String(paidCount)} hint="Статус paid" borderColor="#16A34A" />
+        <MetricCard title="Ожидает выплаты" value={String(pendingCount)} hint={`Статус периода: ${PERIOD_STATUS_META[period?.status]?.label || '-'}`} borderColor="#DC2626" />
+      </div>
+
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-body" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 14, color: 'var(--gray-500)', marginBottom: 4 }}>Управление периодом</div>
+            <div style={{ fontSize: 42, fontWeight: 800, lineHeight: 1 }}>{monthLabel(year, month, true)}</div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <span className="badge badge-blue">Всего: {rows.length}</span>
+              <span className="badge badge-yellow">Рассчитано: {rows.length}</span>
+              <span className="badge badge-green">Выплачено: {paidCount}</span>
+              <span className="badge badge-red">Ожидает: {pendingCount}</span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {canChangeStatus && period?.id && (
+              <>
+                <button className="btn btn-secondary" type="button" onClick={() => setPeriodStatus('calculated')}>В статус Рассчитано</button>
+                <button className="btn btn-secondary" type="button" onClick={() => setPeriodStatus('paid')}>Отметить выплаченным</button>
+              </>
+            )}
+            <button className="btn btn-primary" type="button" onClick={onGenerate}>
+              <RefreshCw size={14} /> Пересчитать месяц
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="card">
-        <div className="card-header"><span className="card-title">{title}</span></div>
+        <div className="card-header">
+          <span className="card-title">Единая таблица зарплат и ставок</span>
+          <button className="btn btn-primary" type="button" onClick={openCreateModal} disabled={usersWithoutProfile.length === 0} title={usersWithoutProfile.length === 0 ? 'У всех сотрудников уже есть ставка' : 'Добавить ставку'}>
+            <Plus size={14} /> Добавить ставку
+          </button>
+        </div>
         <div className="table-wrap">
           <table className="table">
             <thead>
-              <tr><th>СОТРУДНИК</th><th>ОТДЕЛ / РОЛЬ</th><th>ТИП ОПЛАТЫ</th><th>СТАВКА</th><th>ОТРАБОТАНО</th><th>НАЧИСЛЕНО</th><th>ПРЕМИЯ</th><th>ШТРАФ</th><th>ИТОГО</th><th></th></tr>
+              <tr>
+                <th>Сотрудник</th>
+                <th>Месяц</th>
+                <th>Часы</th>
+                <th>Начисление</th>
+                <th>Премия</th>
+                <th>Статус</th>
+                <th>Модель</th>
+                <th>Ставка</th>
+                <th>Управление</th>
+              </tr>
             </thead>
             <tbody>
-              {rows.map(row => (
-                <tr key={row.id}>
-                  <td style={{ fontWeight: 600 }}>{row.name}</td>
-                  <td><div style={{ fontSize: 13 }}>{row.dept}</div><div style={{ fontSize: 11, color: 'var(--gray-400)' }}>{row.role}</div></td>
-                  <td>{PAY_TYPE_LABELS[row.payType]}</td>
+              {loading && <tr><td colSpan={9}>Загрузка...</td></tr>}
+              {!loading && salaryRows.map(({ id, user, payroll, profile }) => (
+                <tr key={id}>
+                  <td style={{ fontWeight: 600 }}>{user.full_name || user.username || `#${id}`}</td>
+                  <td>{payroll ? monthLabel(year, month, true) : '—'}</td>
+                  <td>{payroll ? `${payroll.total_hours ?? 0} ч` : '—'}</td>
+                  <td>{payroll ? amountFmt(payroll.total_salary ?? payroll.salary_amount) : '0 KGS'}</td>
+                  <td>{payroll ? amountFmt(payroll.bonus) : '0 KGS'}</td>
+                  <td>{statusBadge(payroll?.status || period?.status)}</td>
+                  <td>{EMPLOYMENT_OPTIONS.find((x) => x.value === profile?.pay_type)?.label || '—'}</td>
+                  <td>{profile ? `${Number(profile.hourly_rate || profile.fixed_salary || profile.minute_rate || 0).toLocaleString('ru-RU')} KGS` : '—'}</td>
                   <td>
-                    {row.payType === 'hourly' && `${row.hourlyRate} KGS/час`}
-                    {row.payType === 'minute' && `${row.minuteRate} KGS/минута`}
-                    {row.payType === 'fixed' && fmt(row.baseSalary)}
+                    {profile ? (
+                      <button className="btn btn-secondary btn-sm" type="button" onClick={() => openEditModal(profile)}>
+                        <Pencil size={13} /> Изменить
+                      </button>
+                    ) : (
+                      <button className="btn btn-secondary btn-sm" type="button" onClick={() => { setModalMode('create'); setProfileForEdit(null); setSelectedUserId(id); setModalOpened(true); }}>
+                        <Plus size={13} /> Добавить
+                      </button>
+                    )}
                   </td>
-                  <td>{row.workedHours} ч</td>
-                  <td>{fmt(row.base)}</td>
-                  <td>{fmt(row.bonus)}</td>
-                  <td style={{ color: '#EF4444' }}>{fmt(row.penalty)}</td>
-                  <td style={{ fontWeight: 700 }}>{fmt(row.total)}</td>
-                  <td><button className="btn-icon" onClick={() => openEdit(row)}><Pencil size={13} /></button></td>
                 </tr>
               ))}
+              {!loading && salaryRows.length === 0 && <tr><td colSpan={9}>Данные по зарплатам за этот период отсутствуют.</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
 
-      {modal && (
-        <div className="modal-overlay" onClick={() => setModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
-            <div className="modal-header">
-              <div className="modal-title">Настройка ставки</div>
-              <button className="btn-icon" onClick={() => setModal(false)}><X size={18} /></button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group" style={{ marginBottom: 12 }}>
-                <label className="form-label">Тип оплаты</label>
-                <select className="form-select" value={form.payType} onChange={e => setForm(f => ({ ...f, payType: e.target.value }))}>
-                  <option value="fixed">Оклад</option>
-                  <option value="hourly">Почасовая</option>
-                  <option value="minute">Поминутная</option>
-                </select>
-              </div>
-              {form.payType === 'fixed' && (
-                <div className="form-group" style={{ marginBottom: 12 }}>
-                  <label className="form-label">Оклад (KGS)</label>
-                  <input className="form-input" type="number" value={form.baseSalary} onChange={e => setForm(f => ({ ...f, baseSalary: e.target.value }))} />
-                </div>
-              )}
-              {form.payType === 'hourly' && (
-                <div className="form-group" style={{ marginBottom: 12 }}>
-                  <label className="form-label">Ставка за час (KGS)</label>
-                  <input className="form-input" type="number" value={form.hourlyRate} onChange={e => setForm(f => ({ ...f, hourlyRate: e.target.value }))} placeholder="например, 300" />
-                </div>
-              )}
-              {form.payType === 'minute' && (
-                <div className="form-group" style={{ marginBottom: 12 }}>
-                  <label className="form-label">Ставка за минуту (KGS)</label>
-                  <input className="form-input" type="number" value={form.minuteRate} onChange={e => setForm(f => ({ ...f, minuteRate: e.target.value }))} placeholder="например, 5" />
-                </div>
-              )}
-              <div className="form-group" style={{ marginBottom: 12 }}>
-                <label className="form-label">Премия (KGS)</label>
-                <input className="form-input" type="number" value={form.bonus} onChange={e => setForm(f => ({ ...f, bonus: e.target.value }))} />
-              </div>
-              <div className="form-group" style={{ marginBottom: 12 }}>
-                <label className="form-label">Штраф (KGS)</label>
-                <input className="form-input" type="number" value={form.penalty} onChange={e => setForm(f => ({ ...f, penalty: e.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Статус</label>
-                <select className="form-select" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                  <option value="paid">Выплачено</option>
-                  <option value="pending">Ожидает</option>
-                  <option value="delayed">Задержка</option>
-                </select>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setModal(false)}>Отмена</button>
-              <button className="btn btn-primary" onClick={handleSave} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Check size={14} /> Сохранить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SalaryProfileModal
+        opened={modalOpened}
+        mode={modalMode}
+        users={modalMode === 'create' ? usersWithoutProfile : [...usersMap.values()]}
+        profile={profileForEdit}
+        selectedUserId={selectedUserId}
+        onClose={() => setModalOpened(false)}
+        onSubmit={submitModal}
+      />
     </>
   );
 }
 
 export default function Salary() {
-  const { user, mockUsers = [] } = useAuth();
-  const isAdminOrSuper = user?.role === 'superadmin' || user?.role === 'admin';
-  const isDepartmentHead = user?.role === 'projectmanager';
-  const canManageSalary = isAdminOrSuper || isDepartmentHead;
-  const settings = readSettings();
-  const [view, setView] = useState('my');
+  const { user } = useAuth();
+  const isAdmin = isAdminRole(user?.role);
+  const canChangeStatus = isAdmin;
 
-  const managerDepartment = depKey(user);
-  const departmentSalaryFilter = useMemo(() => {
-    if (!isDepartmentHead) return null;
-    return (row) => {
-      const target = mockUsers.find(u => Number(u.id) === Number(row.id));
-      return depKey(target) === managerDepartment;
-    };
-  }, [isDepartmentHead, managerDepartment, mockUsers]);
+  const [view, setView] = useState('my');
+  const [selected, setSelected] = useState(todayMeta());
+  const [myEntry, setMyEntry] = useState(null);
+  const [myLoading, setMyLoading] = useState(true);
+  const [myError, setMyError] = useState('');
+  const [teamRows, setTeamRows] = useState([]);
+  const [teamProfiles, setTeamProfiles] = useState([]);
+  const [teamUsers, setTeamUsers] = useState([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamError, setTeamError] = useState('');
+
+  const monthOptions = useMemo(() => monthSelectOptions(24), []);
+
+  const loadMy = async (year, month) => {
+    setMyLoading(true);
+    setMyError('');
+    try {
+      const res = await payrollAPI.my({ year, month });
+      setMyEntry(res.data || null);
+    } catch (error) {
+      if (error.response?.status === 404) { setMyEntry(null); }
+      else { setMyError(error.response?.data?.detail || 'Не удалось загрузить мою зарплату.'); }
+    } finally { setMyLoading(false); }
+  };
+
+  const loadTeam = async (year, month) => {
+    if (!isAdmin) return;
+    setTeamLoading(true);
+    setTeamError('');
+    try {
+      const [profilesRes, rowsRes, usersRes] = await Promise.all([
+        payrollAPI.salaryProfiles(),
+        payrollAPI.adminList({ year, month }),
+        usersAPI.list().catch(() => ({ data: [] })),
+      ]);
+      setTeamProfiles(Array.isArray(profilesRes.data) ? profilesRes.data : []);
+      setTeamRows(Array.isArray(rowsRes.data) ? rowsRes.data : []);
+      setTeamUsers((Array.isArray(usersRes.data) ? usersRes.data : []).map((u) => ({ id: u.id, username: u.username, full_name: u.full_name || u.username })));
+    } catch (error) {
+      setTeamError(error.response?.data?.detail || 'Не удалось загрузить зарплаты сотрудников.');
+    } finally { setTeamLoading(false); }
+  };
+
+  useEffect(() => {
+    loadMy(selected.year, selected.month);
+    loadTeam(selected.year, selected.month);
+  }, [selected.year, selected.month, isAdmin]);
+
+  const refreshBoth = () => Promise.all([loadMy(selected.year, selected.month), loadTeam(selected.year, selected.month)]);
+
+  const handleGenerate = async () => {
+    setTeamError('');
+    try { await payrollAPI.generate({ year: selected.year, month: selected.month }); await refreshBoth(); }
+    catch (error) { setTeamError(error.response?.data?.detail || 'Не удалось пересчитать выбранный месяц.'); }
+  };
+
+  const handleCreateProfile = async (payload) => {
+    setTeamError('');
+    try { await payrollAPI.createSalaryProfile(payload); await loadTeam(selected.year, selected.month); }
+    catch (error) { setTeamError(error.response?.data?.detail || 'Не удалось создать ставку.'); }
+  };
+
+  const handleUpdateProfile = async (profileId, payload) => {
+    setTeamError('');
+    try { await payrollAPI.updateSalaryProfile(profileId, payload); await loadTeam(selected.year, selected.month); }
+    catch (error) { setTeamError(error.response?.data?.detail || 'Не удалось обновить ставку.'); }
+  };
+
+  const handleSetPeriodStatus = async (periodId, status) => {
+    setTeamError('');
+    try { await payrollAPI.setPeriodStatus(periodId, { status }); await loadTeam(selected.year, selected.month); }
+    catch (error) { setTeamError(error.response?.data?.detail || 'Не удалось изменить статус периода.'); }
+  };
 
   return (
     <MainLayout title="Зарплата">
       <div className="page-header">
         <div>
-          <div className="page-title">{canManageSalary && view === 'team' ? '💰 Зарплаты сотрудников' : '💳 Моя зарплата'}</div>
-          <div className="page-subtitle">
-            {canManageSalary && view === 'team'
-              ? (isDepartmentHead ? 'Зарплаты и редактирование сотрудников вашего отдела.' : 'Оклад, почасовая и поминутная модель с авторасчётом по времени.')
-              : 'Зарплата рассчитывается по вашей модели оплаты.'}
-          </div>
+          <div className="page-title">Зарплата</div>
+          <div className="page-subtitle">Начисления и статус выплат за выбранный период</div>
         </div>
       </div>
 
-      {canManageSalary && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <button
-            type="button"
-            className={`btn btn-sm ${view === 'my' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setView('my')}
-          >
-            Моя зарплата
-          </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${view === 'team' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setView('team')}
-          >
-            {isDepartmentHead ? 'Зарплаты отдела' : 'Зарплаты сотрудников'}
-          </button>
-        </div>
-      )}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        <select
+          className="form-select"
+          style={{ width: 220 }}
+          value={`${selected.year}-${String(selected.month).padStart(2, '0')}`}
+          onChange={(e) => { const [year, month] = e.target.value.split('-').map(Number); setSelected({ year, month }); }}
+        >
+          {monthOptions.map((opt) => <option key={opt.key} value={opt.key}>{monthLabel(opt.year, opt.month, true)}</option>)}
+        </select>
 
-      {canManageSalary
-        ? (view === 'team'
-            ? <AllSalaries rowsFilter={departmentSalaryFilter} title={isDepartmentHead ? 'Настройка зарплаты сотрудников отдела' : 'Настройка зарплаты сотрудников'} />
-            : <MySalary user={user} settings={settings} />)
-        : <MySalary user={user} settings={settings} />}
+        {isAdmin && (
+          <>
+            <button type="button" className={`btn btn-sm ${view === 'my' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView('my')}>Моя зарплата</button>
+            <button type="button" className={`btn btn-sm ${view === 'team' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView('team')}>Зарплаты сотрудников</button>
+          </>
+        )}
+      </div>
+
+      {isAdmin && view === 'team' ? (
+        <TeamSalaryView
+          year={selected.year}
+          month={selected.month}
+          rows={teamRows}
+          profiles={teamProfiles}
+          users={teamUsers}
+          loading={teamLoading}
+          error={teamError}
+          onGenerate={handleGenerate}
+          onCreateProfile={handleCreateProfile}
+          onUpdateProfile={handleUpdateProfile}
+          onSetPeriodStatus={handleSetPeriodStatus}
+          canChangeStatus={canChangeStatus}
+        />
+      ) : (
+        <MySalaryView entry={myEntry} loading={myLoading} error={myError} selectedYear={selected.year} selectedMonth={selected.month} />
+      )}
     </MainLayout>
   );
 }

@@ -1,252 +1,293 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { authAPI } from '../api/auth';
-import { listCustomMockUsers, MOCK_USERS_CHANGED_EVENT } from '../utils/mockUsers';
+import {
+  normalizeRole,
+  isAdminRole,
+  isSuperAdminRole,
+  isInternRole,
+  normalizeLandingForRole,
+  pathFromLanding,
+} from '../utils/roles';
 
 const AuthContext = createContext(null);
 
-// ── Хард-код для режима без backend (USE_MOCK=true) ──────────────────────────
-const USE_MOCK = true; // Переключи в false когда подключишь backend
-
-export const HARDCODED_USERS = [
-  {
-    id: 1, login: 'alexey', username: 'alexey', password: '1234',
-    role: 'intern', roleLabel: 'Стажёр',
-    name: 'Алексей Петров', first_name: 'Алексей', last_name: 'Петров',
-    department: 1, department_name: 'Разработка',
-    subdivision: 'Frontend',
-    subdivision_name: 'Frontend',
-    position: 9, position_name: 'Стажёр',
-    phone: '+996 555 123 456', telegram: '@alex_petrov',
-    email: 'alex.p@vpluse.kg', hireDate: '27.05.2024',
-  },
-  {
-    id: 2, login: 'aibek', username: 'aibek', password: '1234',
-    role: 'employee', roleLabel: 'Сотрудник',
-    name: 'Айбек Усупов', first_name: 'Айбек', last_name: 'Усупов',
-    department: 3, department_name: 'Отдел холодных продаж',
-    subdivision: 'Холодные звонки',
-    subdivision_name: 'Холодные звонки',
-    position: 6, position_name: 'Менеджер продаж',
-    phone: '+996 700 200 300', telegram: '@aibek_u',
-    email: 'aibek.u@vpluse.kg', hireDate: '01.03.2024',
-  },
-  {
-    id: 3, login: 'sultan', username: 'sultan', password: '1234',
-    role: 'projectmanager', roleLabel: 'Проект-менеджер',
-    name: 'Султаналиев Максат', first_name: 'Максат', last_name: 'Султаналиев',
-    department: 2, department_name: 'Отдел маркетинга',
-    subdivision: 'Digital',
-    subdivision_name: 'Digital',
-    position: 7, position_name: 'Проект-менеджер',
-    phone: '+996 999 555 194', telegram: '@sultan_m',
-    email: 'sultan.m@vpluse.kg', hireDate: '27.05.2024',
-  },
-  {
-    id: 10, login: 'elena.m', username: 'elena.m', password: '1234',
-    role: 'employee', roleLabel: 'Сотрудник',
-    name: 'Елена М.', first_name: 'Елена', last_name: 'М.',
-    department: 2, department_name: 'Отдел маркетинга',
-    subdivision: 'Digital',
-    subdivision_name: 'Digital',
-    position: 6, position_name: 'Маркетолог',
-    phone: '+996 700 101 202', telegram: '@elena_marketing',
-    email: 'elena.m@vpluse.kg', hireDate: '04.04.2024',
-  },
-  {
-    id: 11, login: 'azamat.k', username: 'azamat.k', password: '1234',
-    role: 'intern', roleLabel: 'Стажёр',
-    name: 'Азамат К.', first_name: 'Азамат', last_name: 'К.',
-    department: 2, department_name: 'Отдел маркетинга',
-    subdivision: 'Digital',
-    subdivision_name: 'Digital',
-    position: 9, position_name: 'Стажёр',
-    phone: '+996 700 303 404', telegram: '@azamat_intern',
-    email: 'azamat.k@vpluse.kg', hireDate: '10.02.2026',
-  },
-  {
-    id: 4, login: 'ivan', username: 'ivan', password: '1234',
-    role: 'projectmanager', roleLabel: 'Руководитель',
-    name: 'Иван С.', first_name: 'Иван', last_name: 'С.',
-    department: 5, department_name: 'Управление',
-    subdivision: 'Операционное управление',
-    subdivision_name: 'Операционное управление',
-    position: 8, position_name: 'Руководитель',
-    phone: '+996 555 200 100', telegram: '@ivan_sales',
-    email: 'ivan.s@vpluse.kg', hireDate: '19.03.2024',
-  },
-  {
-    id: 5, login: 'maria', username: 'maria', password: '1234',
-    role: 'superadmin', roleLabel: 'Суперадминистратор',
-    name: 'Мария К.', first_name: 'Мария', last_name: 'К.',
-    department: 5, department_name: 'Управление',
-    subdivision: 'Администрирование',
-    subdivision_name: 'Администрирование',
-    position: 9, position_name: 'Суперадминистратор',
-    phone: '+996 555 600 500', telegram: '@maria_k',
-    email: 'maria.k@vpluse.kg', hireDate: '19.03.2024',
-  },
-  {
-    id: 9, login: 'admin', username: 'admin', password: '1234',
-    role: 'admin', roleLabel: 'Администратор',
-    name: 'Админ А.', first_name: 'Админ', last_name: 'А.',
-    department: 5, department_name: 'Управление',
-    subdivision: 'Администрирование',
-    subdivision_name: 'Администрирование',
-    position: 10, position_name: 'Администратор',
-    phone: '+996 555 900 100', telegram: '@admin_full',
-    email: 'admin@vpluse.kg', hireDate: '20.03.2024',
-  },
-];
-
-const ROLE_LABELS = {
-  intern: 'Стажёр',
-  employee: 'Сотрудник',
-  projectmanager: 'Проект-менеджер',
-  admin: 'Администратор',
-  superadmin: 'Суперадминистратор',
+const USE_MOCK = false;
+const STORAGE_KEYS = {
+  access: 'access_token',
+  refresh: 'refresh_token',
+  role: 'onboarding_role',
+  landing: 'onboarding_landing',
+  legacyAccess: 'onboarding_access_token',
 };
 
-function normalizeMockUser(raw) {
-  const login = raw.login || raw.username || raw.email || '';
-  return {
-    id: raw.id,
-    login,
-    username: raw.username || login,
-    password: raw.password || '1234',
-    role: raw.role || 'intern',
-    roleLabel: raw.roleLabel || ROLE_LABELS[raw.role] || 'Стажёр',
-    name: raw.name || [raw.first_name, raw.last_name].filter(Boolean).join(' ') || login,
-    first_name: raw.first_name || '',
-    last_name: raw.last_name || '',
-    department: raw.department || '',
-    department_name: raw.department_name || raw.department || '',
-    subdivision: raw.subdivision || '',
-    subdivision_name: raw.subdivision_name || raw.subdivision || '',
-    position: raw.position || '',
-    position_name: raw.position_name || raw.position || '',
-    phone: raw.phone || '',
-    telegram: raw.telegram || '',
-    email: raw.email || '',
-    hireDate: raw.hireDate || raw.hire_date || '',
+const ROLE_LABELS = {
+  intern: 'Стажер',
+  employee: 'Сотрудник',
+  projectmanager: 'Проект-менеджер',
+  department_head: 'Руководитель отдела',
+  admin: 'Админ',
+  administrator: 'Администратор',
+  superadmin: 'Суперадмин',
+};
+
+let bootstrapPromise = null;
+
+function clearSessionStorage() {
+  localStorage.removeItem(STORAGE_KEYS.access);
+  localStorage.removeItem(STORAGE_KEYS.refresh);
+  localStorage.removeItem(STORAGE_KEYS.role);
+  localStorage.removeItem(STORAGE_KEYS.landing);
+  localStorage.removeItem(STORAGE_KEYS.legacyAccess);
+}
+
+function syncRoleAndLanding(role) {
+  const normalizedRole = normalizeRole(role);
+  const previousLanding = localStorage.getItem(STORAGE_KEYS.landing);
+  const nextLanding = normalizeLandingForRole(previousLanding, normalizedRole);
+  localStorage.setItem(STORAGE_KEYS.role, normalizedRole);
+  localStorage.setItem(STORAGE_KEYS.landing, nextLanding);
+  return { normalizedRole, landing: nextLanding };
+}
+
+function normalizeUser(raw = {}) {
+  const roleLabelText = String(raw.role_label || raw.user?.role_label || raw.role_name || raw.user?.role_name || '').toLowerCase();
+  const resolveRoleFromLabel = () => {
+    if (!roleLabelText) return null;
+    if (roleLabelText.includes('super') || roleLabelText.includes('супер')) return 'SUPER_ADMIN';
+    if (roleLabelText.includes('system') || roleLabelText.includes('систем')) return 'SYSTEMADMIN';
+    if (roleLabelText.includes('admin') || roleLabelText.includes('админ')) return 'ADMINISTRATOR';
+    if (roleLabelText.includes('intern') || roleLabelText.includes('стаж')) return 'INTERN';
+    if (roleLabelText.includes('project') || roleLabelText.includes('руковод')) return 'PROJECTMANAGER';
+    if (roleLabelText.includes('employee') || roleLabelText.includes('сотруд')) return 'EMPLOYEE';
+    return null;
   };
-}
 
-function getAllMockUsers() {
-  const custom = listCustomMockUsers();
-  const byEmail = new Map();
-  [...HARDCODED_USERS, ...custom].forEach((u) => {
-    const key = (u.email || u.login || u.username || String(u.id)).toLowerCase();
-    byEmail.set(key, normalizeMockUser(u));
-  });
-  return Array.from(byEmail.values());
-}
+  const hasSuperuserFlag =
+    Boolean(raw.is_superuser) ||
+    Boolean(raw.user?.is_superuser) ||
+    Boolean(raw.is_super_admin) ||
+    Boolean(raw.user?.is_super_admin);
+  const hasAdminFlag =
+    Boolean(raw.is_staff) ||
+    Boolean(raw.user?.is_staff) ||
+    Boolean(raw.is_admin) ||
+    Boolean(raw.user?.is_admin) ||
+    Boolean(raw.is_system_admin) ||
+    Boolean(raw.user?.is_system_admin);
 
-function normalizeUser(raw) {
+  const roleCandidates = [
+    raw.role,
+    raw.role?.code,
+    raw.role?.name,
+    raw.user_role,
+    raw.role_code,
+    raw.role_name,
+    raw.user?.role,
+    raw.user?.role?.code,
+    raw.user?.role?.name,
+    raw.user?.user_role,
+    raw.user?.role_code,
+    raw.account?.role,
+    raw.account?.role?.code,
+    raw.account?.role_code,
+  ];
+  let roleSource = roleCandidates.find(Boolean);
+  if (!roleSource) roleSource = resolveRoleFromLabel();
+  if (hasSuperuserFlag) roleSource = 'SUPER_ADMIN';
+  else if (!roleSource && hasAdminFlag) roleSource = 'ADMIN';
+  const role = normalizeRole(roleSource);
+  const fullName =
+    raw.full_name ||
+    [raw.first_name, raw.last_name].filter(Boolean).join(' ').trim() ||
+    raw.name ||
+    raw.username ||
+    raw.email ||
+    '';
+
   return {
     id: raw.id,
-    username: raw.username,
-    login: raw.username,
-    name: raw.full_name || `${raw.first_name} ${raw.last_name}`.trim() || raw.username,
-    email: raw.email,
-    role: raw.role,
-    roleLabel: raw.role_label,
-    department: raw.department,
-    department_name: raw.department_name,
-    subdivision: raw.subdivision,
-    subdivision_name: raw.subdivision_name,
-    position: raw.position,
-    position_name: raw.position_name,
+    username: raw.username || raw.email || String(raw.id || ''),
+    login: raw.username || raw.email || String(raw.id || ''),
+    name: fullName,
+    email: raw.email || '',
+    role,
+    roleLabel: raw.role_label || raw.user?.role_label || ROLE_LABELS[role] || role,
+    department: raw.department || '',
+    department_name: raw.department_name || '',
+    subdivision: raw.subdivision || '',
+    subdivision_name: raw.subdivision_name || '',
+    position: raw.position || '',
+    position_name: raw.position_name || '',
     phone: raw.phone || '',
     telegram: raw.telegram || '',
     hireDate: raw.hire_date || '',
+    photo: raw.photo || raw.avatar || raw.profile_photo || raw.user?.photo || raw.user?.avatar || '',
   };
+}
+
+function decodeJwtPayload(token) {
+  try {
+    const [, payload = ''] = String(token).split('.');
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+function isTokenExpired(token, skewSeconds = 30) {
+  const payload = decodeJwtPayload(token);
+  const exp = Number(payload?.exp || 0);
+  if (!exp) return true;
+  return Date.now() >= (exp - skewSeconds) * 1000;
+}
+
+async function refreshAccessToken(refreshToken) {
+  if (!refreshToken) throw new Error('Missing refresh token');
+  const res = await authAPI.refresh(refreshToken);
+  const { access, access_token } = res.data || {};
+  const nextAccess = access || access_token;
+  if (!nextAccess) throw new Error('No access token in refresh response');
+  localStorage.setItem(STORAGE_KEYS.access, nextAccess);
+  localStorage.setItem(STORAGE_KEYS.legacyAccess, nextAccess);
+  return nextAccess;
+}
+
+async function bootstrapAuthState() {
+  const accessToken = localStorage.getItem(STORAGE_KEYS.access);
+  const refreshToken = localStorage.getItem(STORAGE_KEYS.refresh);
+
+  if (!accessToken && !refreshToken) {
+    return { user: null, landing: 'employee_portal' };
+  }
+
+  if (!accessToken && refreshToken) {
+    await refreshAccessToken(refreshToken);
+  } else if (accessToken && isTokenExpired(accessToken)) {
+    if (!refreshToken) throw new Error('Access token expired and no refresh token');
+    await refreshAccessToken(refreshToken);
+  }
+
+  const profileResponse = await authAPI.getMe();
+  const normalized = normalizeUser(profileResponse.data || {});
+  const synced = syncRoleAndLanding(normalized.role);
+  return {
+    user: { ...normalized, role: synced.normalizedRole, landing: synced.landing },
+    landing: synced.landing,
+  };
+}
+
+async function getBootstrapAuthState() {
+  if (!bootstrapPromise) {
+    bootstrapPromise = bootstrapAuthState().finally(() => {
+      bootstrapPromise = null;
+    });
+  }
+  return bootstrapPromise;
 }
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [landing, setLanding] = useState(() => localStorage.getItem(STORAGE_KEYS.landing) || 'employee_portal');
   const [loading, setLoading] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
-  const [mockUsers, setMockUsers] = useState(getAllMockUsers());
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    const refresh = () => setMockUsers(getAllMockUsers());
-    window.addEventListener(MOCK_USERS_CHANGED_EVENT, refresh);
-    window.addEventListener('storage', refresh);
+    mountedRef.current = true;
+
+    getBootstrapAuthState()
+      .then((state) => {
+        if (!mountedRef.current) return;
+        setUser(state.user);
+        setLanding(state.landing);
+      })
+      .catch(() => {
+        if (!mountedRef.current) return;
+        clearSessionStorage();
+        setUser(null);
+        setLanding('employee_portal');
+      })
+      .finally(() => {
+        if (mountedRef.current) setBootstrapped(true);
+      });
+
     return () => {
-      window.removeEventListener(MOCK_USERS_CHANGED_EVENT, refresh);
-      window.removeEventListener('storage', refresh);
+      mountedRef.current = false;
     };
-  }, []);
-
-  // Restore session on mount
-  useEffect(() => {
-    if (USE_MOCK) { setBootstrapped(true); return; }
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      authAPI.getMe()
-        .then(res => setUser(normalizeUser(res.data)))
-        .catch(() => {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
-        })
-        .finally(() => setBootstrapped(true));
-    } else {
-      setBootstrapped(true);
-    }
   }, []);
 
   const login = async (loginVal, password) => {
     setLoading(true);
     try {
-      if (USE_MOCK) {
-        await new Promise(r => setTimeout(r, 400));
-        const found = getAllMockUsers().find(
-          u =>
-            [u.login, u.username, u.email]
-              .filter(Boolean)
-              .some(v => v.toLowerCase() === loginVal.trim().toLowerCase()) &&
-            u.password === password
-        );
-        if (!found) throw new Error('Неверный логин или пароль');
-        setUser(normalizeMockUser(found));
-        return found;
-      } else {
-        const res = await authAPI.login(loginVal, password);
-        const { access, refresh, user: userData } = res.data;
-        localStorage.setItem('access_token', access);
-        localStorage.setItem('refresh_token', refresh);
-        const normalized = normalizeUser(userData);
-        setUser(normalized);
-        return normalized;
+      // Drop stale tokens before starting a fresh login.
+      clearSessionStorage();
+      const res = await authAPI.login(loginVal, password);
+      const { access, refresh, access_token, refresh_token } = res.data || {};
+      const finalAccess = access || access_token;
+      const finalRefresh = refresh || refresh_token;
+
+      if (finalAccess) {
+        localStorage.setItem(STORAGE_KEYS.access, finalAccess);
+        localStorage.setItem(STORAGE_KEYS.legacyAccess, finalAccess);
       }
+      if (finalRefresh) localStorage.setItem(STORAGE_KEYS.refresh, finalRefresh);
+
+      const profileResponse = await authAPI.getMe();
+      const normalized = normalizeUser(profileResponse.data || {});
+      const synced = syncRoleAndLanding(normalized.role);
+      const nextUser = { ...normalized, role: synced.normalizedRole, landing: synced.landing };
+
+      setLanding(synced.landing);
+      setUser(nextUser);
+      return nextUser;
     } finally {
       setLoading(false);
     }
   };
 
   const logout = async () => {
-    if (!USE_MOCK) {
-      const refresh = localStorage.getItem('refresh_token');
-      if (refresh) await authAPI.logout(refresh).catch(() => {});
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-    }
+    const refresh = localStorage.getItem(STORAGE_KEYS.refresh);
+    if (refresh) await authAPI.logout(refresh).catch(() => {});
+    clearSessionStorage();
     setUser(null);
+    setLanding('employee_portal');
   };
 
-  const updateUser = (data) => setUser(u => ({ ...u, ...data }));
+  const updateUser = async (patch) => {
+    const res = await authAPI.updateMe(patch);
+    const normalized = normalizeUser(res.data || {});
+    const synced = syncRoleAndLanding(normalized.role);
+    const nextUser = { ...normalized, role: synced.normalizedRole, landing: synced.landing };
+    setLanding(synced.landing);
+    setUser(nextUser);
+    return nextUser;
+  };
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
+  const isAdmin = user?.role === 'department_head' || user?.role === 'admin' || user?.role === 'administrator' || user?.role === 'superadmin';
   const isSuperAdmin = user?.role === 'superadmin';
   const isIntern = user?.role === 'intern';
 
   if (!bootstrapped) return null;
 
   return (
-    <AuthContext.Provider value={{
-      user, login, logout, updateUser, loading,
-      isAdmin, isSuperAdmin, isIntern, USE_MOCK, mockUsers,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        login,
+        logout,
+        updateUser,
+        loading,
+        isAdmin,
+        isSuperAdmin,
+        isIntern,
+        landing,
+        getDefaultPath: () => pathFromLanding(landing),
+        USE_MOCK,
+        mockUsers: [],
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

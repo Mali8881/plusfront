@@ -1,338 +1,425 @@
-import MainLayout from '../../layouts/MainLayout';
-import { REGULATIONS } from '../../data/mockData';
+﻿import MainLayout from '../../layouts/MainLayout';
 import { useEffect, useMemo, useState } from 'react';
-import { Download, ExternalLink, Globe } from 'lucide-react';
+import { Download, ExternalLink, Globe, FileText, Link2, MessageSquare, ClipboardCheck, CheckCircle2 } from 'lucide-react';
+import { regulationsAPI } from '../../api/content';
 import { useAuth } from '../../context/AuthContext';
+import { useLocale } from '../../context/LocaleContext';
+import { isInternRole } from '../../utils/roles';
 
-const typeIcon = (type) => {
-  if (type === 'pdf') return { icon: '📄', color: '#FEE2E2', iconColor: '#DC2626' };
-  if (type === 'docx') return { icon: '📝', color: '#DBEAFE', iconColor: '#2563EB' };
-  return { icon: '🔗', color: '#EDE9FE', iconColor: '#7C3AED' };
-};
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+let BACKEND_ORIGIN = 'http://127.0.0.1:8000';
+try {
+  BACKEND_ORIGIN = new URL(API_BASE_URL).origin;
+} catch {
+  // keep default origin
+}
 
-const TESTS_KEY = 'vpluse_regulations_tests_v1';
-const READ_KEY = 'vpluse_regulations_read_v1';
+function safeList(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.data?.results)) return data.data.results;
+  if (Array.isArray(data?.data?.items)) return data.data.items;
+  return [];
+}
 
-const TEST_QUESTIONS = {
-  default: [
-    {
-      id: 'q1',
-      text: 'Как нужно действовать при нарушении требований регламента?',
-      options: ['Игнорировать', 'Сообщить руководителю и следовать регламенту', 'Дождаться замечания'],
-      correct: 1,
-    },
-    {
-      id: 'q2',
-      text: 'Обязательно ли соблюдать регламенты компании?',
-      options: ['Да, для всех сотрудников', 'Только для стажёров', 'Нет, по желанию'],
-      correct: 0,
-    },
-    {
-      id: 'q3',
-      text: 'Что подтверждает прохождение регламента?',
-      options: ['Только открытие файла', 'Успешный результат теста', 'Устный ответ'],
-      correct: 1,
-    },
-  ],
-};
+function formatDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('ru-RU');
+}
 
-const readTests = () => {
-  try {
-    const raw = localStorage.getItem(TESTS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-};
+function isLikelyUrl(value) {
+  return /^https?:\/\//i.test(String(value || '')) || String(value || '').startsWith('/');
+}
 
-const writeTests = (store) => localStorage.setItem(TESTS_KEY, JSON.stringify(store));
+function normalizeOpenUrl(url) {
+  if (!url) return '';
+  const raw = String(url).trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('/')) return `${BACKEND_ORIGIN}${raw}`;
+  return raw;
+}
 
-const getUserTests = (userId) => {
-  const store = readTests();
-  return store[String(userId)] || {};
-};
+function toOpenUrl(raw) {
+  const actionUrl = raw?.action?.url || raw?.action_url || (typeof raw?.action === 'string' && isLikelyUrl(raw.action) ? raw.action : '');
+  const contentUrl =
+    raw?.content?.url ||
+    raw?.content_url ||
+    (typeof raw?.content === 'string' && isLikelyUrl(raw.content) ? raw.content : '') ||
+    raw?.external_url ||
+    raw?.url ||
+    raw?.file ||
+    raw?.file_url ||
+    raw?.document ||
+    '';
 
-const setUserTestResult = (userId, regId, result) => {
-  const store = readTests();
-  const uid = String(userId);
-  store[uid] = store[uid] || {};
-  store[uid][String(regId)] = result;
-  writeTests(store);
-};
+  return normalizeOpenUrl(actionUrl || contentUrl || '');
+}
 
-const readReadStore = () => {
-  try {
-    const raw = localStorage.getItem(READ_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-};
+function fileExtFromUrl(url) {
+  const clean = String(url || '').split('?')[0].split('#')[0];
+  const part = clean.split('.').pop();
+  return (part || '').toLowerCase();
+}
 
-const getUserRead = (userId) => {
-  const store = readReadStore();
-  return store[String(userId)] || {};
-};
+function canInlinePreview(url) {
+  const ext = fileExtFromUrl(url);
+  return ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'txt'].includes(ext);
+}
 
-const setUserRead = (userId, regId) => {
-  const store = readReadStore();
-  const uid = String(userId);
-  store[uid] = store[uid] || {};
-  store[uid][String(regId)] = { done: true, at: new Date().toLocaleString('ru-RU') };
-  localStorage.setItem(READ_KEY, JSON.stringify(store));
-};
+function normalizeReg(raw = {}) {
+  const typeRaw = String(raw.type || raw.kind || '').toLowerCase();
+  const type = typeRaw.includes('link') ? 'link' : 'file';
+  const openUrl = toOpenUrl(raw);
 
-const formatDeadline = (iso) => {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('ru-RU');
-};
+  return {
+    id: raw.id,
+    title: raw.title || raw.name || raw.file_name || `Регламент #${raw.id}`,
+    description: raw.description || raw.desc || raw.summary || '',
+    type,
+    openUrl,
+    updatedAt: formatDate(raw.updated_at || raw.modified || raw.created_at || raw.date),
+    size: raw.size || raw.file_size || '',
 
-const isDeadlinePassed = (iso) => {
-  if (!iso) return false;
-  const now = new Date();
-  const d = new Date(iso);
-  d.setHours(23, 59, 59, 999);
-  return now > d;
-};
+    isAcknowledged: Boolean(raw.is_acknowledged),
+    acknowledgedAt: formatDate(raw.acknowledged_at),
+    isOverdue: Boolean(raw.is_overdue),
+
+    quizRequired: Boolean(raw.quiz_required),
+    quizPassed: Boolean(raw.quiz_passed),
+    quizQuestion: raw.quiz_question || raw.quiz?.question || '',
+    quizOptions: Array.isArray(raw.quiz_options)
+      ? raw.quiz_options
+      : Array.isArray(raw.quiz?.options)
+        ? raw.quiz.options
+        : [],
+
+    reportRequiredToday: Boolean(raw.report_required_today),
+    reportSubmittedToday: Boolean(raw.report_submitted_today),
+  };
+}
 
 export default function Regulations() {
   const { user } = useAuth();
-  const isIntern = user?.role === 'intern';
+  const { t, tr } = useLocale();
+  const isIntern = isInternRole(user?.role);
 
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionMsg, setActionMsg] = useState('');
+  const [busyId, setBusyId] = useState(null);
   const [previewDoc, setPreviewDoc] = useState(null);
-  const [testDoc, setTestDoc] = useState(null);
-  const [answers, setAnswers] = useState({});
-  const [results, setResults] = useState({});
-  const [readDone, setReadDone] = useState({});
-  const [testMsg, setTestMsg] = useState('');
+
+  const [quizDoc, setQuizDoc] = useState(null);
+  const [quizAnswer, setQuizAnswer] = useState('');
+
+  const loadDocs = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await regulationsAPI.list();
+      setDocs(safeList(res.data).map(normalizeReg));
+    } catch (err) {
+      setDocs([]);
+      setError(err?.response?.data?.detail || tr('Не удалось загрузить регламенты'));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!user?.id) return;
-    setResults(getUserTests(user.id));
-    setReadDone(getUserRead(user.id));
-  }, [user?.id]);
+    loadDocs();
+  }, []);
 
-  const questions = useMemo(() => TEST_QUESTIONS.default, []);
+  const docsToShow = useMemo(() => docs, [docs]);
 
-  const openTestForDoc = (doc) => {
-    if (isIntern && !readDone[String(doc.id)]?.done) return;
-    setTestDoc(doc);
-    setAnswers({});
-    setTestMsg('');
+  const withReload = async (docId, action, successMessage) => {
+    setBusyId(docId);
+    try {
+      await action();
+      setActionMsg(successMessage);
+      await loadDocs();
+    } catch (err) {
+      setActionMsg(err?.response?.data?.detail || tr('Операция не выполнена'));
+    } finally {
+      setBusyId(null);
+      setTimeout(() => setActionMsg(''), 3000);
+    }
   };
 
-  const completeReading = () => {
-    if (!user?.id || !previewDoc) return;
-    setUserRead(user.id, previewDoc.id);
-    setReadDone(getUserRead(user.id));
+  const openRegulation = async (doc) => {
+    try {
+      const res = await regulationsAPI.detail(doc.id);
+      const detailed = normalizeReg(res.data || {});
+      setPreviewDoc(detailed);
+      if (!detailed.openUrl && !doc.openUrl) {
+        setActionMsg(tr('У документа нет content/action URL для открытия'));
+        setTimeout(() => setActionMsg(''), 3000);
+      }
+    } catch {
+      setPreviewDoc(doc);
+    }
   };
 
-  const submitTest = () => {
-    if (!user?.id || !testDoc) return;
-    const total = questions.length;
-    const correct = questions.reduce((sum, q) => sum + (Number(answers[q.id]) === q.correct ? 1 : 0), 0);
-    const score = Math.round((correct / total) * 100);
-    const passed = score >= 70;
-    const result = { passed, score, at: new Date().toLocaleString('ru-RU') };
-    setUserTestResult(user.id, testDoc.id, result);
-    setResults(r => ({ ...r, [String(testDoc.id)]: result }));
-    setTestMsg(passed ? `Тест пройден: ${score}%` : `Тест не пройден: ${score}%. Нужно минимум 70%.`);
+  const acknowledge = async (doc) => {
+    setBusyId(doc.id);
+    try {
+      await regulationsAPI.acknowledge(doc.id, { acknowledged: true });
+      setActionMsg(tr('Прочтение отмечено'));
+      await loadDocs();
+      if (isIntern && doc.quizRequired && !doc.quizPassed) {
+        setQuizDoc(doc);
+        setQuizAnswer('');
+      }
+    } catch (err) {
+      setActionMsg(err?.response?.data?.detail || tr('Операция не выполнена'));
+    } finally {
+      setBusyId(null);
+      setTimeout(() => setActionMsg(''), 3000);
+    }
+  };
+
+  const sendRegFeedback = async (doc) => {
+    const text = window.prompt(tr('Введите feedback по регламенту'));
+    if (!text?.trim()) return;
+
+    await withReload(
+      doc.id,
+      () => regulationsAPI.submitFeedback(doc.id, { text: text.trim(), message: text.trim(), feedback: text.trim() }),
+      tr('Feedback отправлен')
+    );
+  };
+
+  const submitQuiz = async (doc) => {
+    if (!isIntern) {
+      const answer = window.prompt(tr('Введите ответ для quiz/теста'));
+      if (!answer?.trim()) return;
+      await withReload(
+        doc.id,
+        () => regulationsAPI.submitQuiz(doc.id, { answer: answer.trim(), user_answer: answer.trim() }),
+        tr('Тест отправлен')
+      );
+      return;
+    }
+    setQuizDoc(doc);
+    setQuizAnswer('');
+  };
+
+  const submitInternQuiz = async () => {
+    if (!quizDoc) return;
+    const answer = String(quizAnswer || '').trim();
+    if (!answer) return;
+
+    await withReload(
+      quizDoc.id,
+      () => regulationsAPI.submitQuiz(quizDoc.id, { answer, user_answer: answer }),
+      tr('Тест отправлен')
+    );
+
+    setQuizDoc(null);
+    setQuizAnswer('');
+  };
+
+  const submitReadReport = async (doc) => {
+    const report = window.prompt(tr('Краткий отчет по прочтению'));
+    if (!report?.trim()) return;
+
+    await withReload(
+      doc.id,
+      () => regulationsAPI.submitReadReport(doc.id, { report: report.trim(), text: report.trim(), message: report.trim() }),
+      tr('Отчет отправлен')
+    );
   };
 
   return (
-    <MainLayout title="Регламенты компании">
+    <MainLayout title={tr('Регламенты компании')}>
       <div className="page-header">
         <div>
-          <div className="page-title">Внутренние регламенты и инструкции</div>
-          <div className="page-subtitle">Изучайте документы, правила и стандарты компании</div>
+          <div className="page-title">{tr('Внутренние регламенты и инструкции')}</div>
+          <div className="page-subtitle">{tr('Список документов, подтверждение прочтения, quiz и отчеты')}</div>
         </div>
       </div>
 
+      {error && <div style={{ marginBottom: 14, color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
+      {actionMsg && <div style={{ marginBottom: 14, color: actionMsg.toLowerCase().includes('не') ? 'var(--danger)' : 'var(--success)', fontSize: 13 }}>{actionMsg}</div>}
+
       <div className="reg-grid">
-        {REGULATIONS.map(reg => {
-          const { icon, color } = typeIcon(reg.type);
-          const testResult = results[String(reg.id)];
-          const readMarked = Boolean(readDone[String(reg.id)]?.done);
-          const overdue = isIntern && !readMarked && isDeadlinePassed(reg.deadline);
-          return (
-            <div key={reg.id} className="reg-card">
-              <div className="reg-icon" style={{ background: color }}>
-                <span style={{ fontSize: 20 }}>{icon}</span>
-              </div>
-              <div className="reg-title">{reg.title}</div>
-              <div className="reg-desc">{reg.desc}</div>
-              <div style={{ marginBottom: 8, fontSize: 12, color: overdue ? 'var(--danger)' : 'var(--gray-500)' }}>
-                Дедлайн прочтения: {formatDeadline(reg.deadline)}
-                {overdue ? ' (просрочено)' : ''}
+        {loading && <div style={{ color: 'var(--gray-500)', fontSize: 13 }}>{t('common.loading', 'Загрузка...')}</div>}
+        {!loading && docsToShow.length === 0 && <div style={{ color: 'var(--gray-500)', fontSize: 13 }}>{tr('Документы пока не добавлены')}</div>}
+
+        {!loading &&
+          docsToShow.map((doc) => (
+            <div key={doc.id} className="reg-card">
+              <div
+                className="reg-icon"
+                style={{
+                  background: doc.type === 'link' ? '#EDE9FE' : '#DBEAFE',
+                  color: doc.type === 'link' ? '#7C3AED' : '#2563EB',
+                }}
+              >
+                {doc.type === 'link' ? <Link2 size={18} /> : <FileText size={18} />}
               </div>
 
-              {isIntern && reg.type === 'pdf' && (
-                <div style={{ marginBottom: 8, fontSize: 12 }}>
-                  {testResult?.passed
-                    ? <span style={{ color: 'var(--success)' }}>Тест пройден ({testResult.score}%)</span>
-                    : !readMarked
-                      ? <span style={{ color: 'var(--gray-500)' }}>Сначала нажмите «Закончил чтение»</span>
-                      : <span style={{ color: 'var(--gray-500)' }}>Можно пройти тест</span>}
-                </div>
-              )}
+              <div className="reg-title">{doc.title}</div>
+              <div className="reg-desc">{doc.description || tr('Без описания')}</div>
 
-              <div className="reg-action">
-                {reg.type === 'link'
-                  ? <a
-                      className="btn btn-outline btn-sm"
-                      style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}
-                      href={encodeURI(reg.url || '#')}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <ExternalLink size={13} /> {reg.url ? 'Открыть в Notion' : 'Перейти к инструкции'}
-                    </a>
-                  : (
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button
-                        className="btn btn-outline btn-sm"
-                        style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}
-                        onClick={() => setPreviewDoc(reg)}
-                      >
-                        <Globe size={13} /> Читать на сайте
-                      </button>
-                      {isIntern && reg.type === 'pdf' && readMarked && (
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}
-                          onClick={() => openTestForDoc(reg)}
-                        >
-                          Пройти тест
-                        </button>
-                      )}
-                      <a
-                        className="btn btn-primary btn-sm"
-                        style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}
-                        href={encodeURI(reg.url || '#')}
-                        target="_blank"
-                        rel="noreferrer"
-                        download
-                      >
-                        <Download size={13} /> Скачать {reg.type?.toUpperCase()} ({reg.size})
-                      </a>
-                    </div>
-                  )
-                }
+              <div style={{ marginBottom: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <span className={`badge ${doc.isAcknowledged ? 'badge-green' : 'badge-gray'}`}>
+                  {doc.isAcknowledged ? tr('Прочтено') : tr('Не прочитано')}
+                </span>
+                {doc.isOverdue && <span className="badge badge-red">{tr('Просрочено')}</span>}
+                {doc.quizRequired && <span className={`badge ${doc.quizPassed ? 'badge-green' : 'badge-yellow'}`}>{doc.quizPassed ? tr('Quiz пройден') : tr('Quiz обязателен')}</span>}
+                {doc.reportRequiredToday && (
+                  <span className={`badge ${doc.reportSubmittedToday ? 'badge-green' : 'badge-yellow'}`}>
+                    {doc.reportSubmittedToday ? tr('Отчет отправлен') : tr('Нужен отчет сегодня')}
+                  </span>
+                )}
+              </div>
+
+              {!!doc.updatedAt && <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--gray-400)' }}>{tr('Обновлено:')} {doc.updatedAt}</div>}
+
+              <div className="reg-action" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-outline btn-sm" onClick={() => openRegulation(doc)} disabled={busyId === doc.id}>
+                  <Globe size={13} /> {tr('Открыть')}
+                </button>
+
+                {!doc.isAcknowledged && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => acknowledge(doc)} disabled={busyId === doc.id}>
+                    <CheckCircle2 size={13} /> {tr('Отметить прочтение')}
+                  </button>
+                )}
+
+                {doc.quizRequired && !doc.quizPassed && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => submitQuiz(doc)} disabled={busyId === doc.id}>
+                    <ClipboardCheck size={13} /> {tr('Мини-тест')}
+                  </button>
+                )}
+
+                {doc.reportRequiredToday && !doc.reportSubmittedToday && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => submitReadReport(doc)} disabled={busyId === doc.id}>
+                    <FileText size={13} /> {tr('Отправить отчет')}
+                  </button>
+                )}
+
+                <button className="btn btn-secondary btn-sm" onClick={() => sendRegFeedback(doc)} disabled={busyId === doc.id}>
+                  <MessageSquare size={13} /> Feedback
+                </button>
+
+                {doc.openUrl && (
+                  <a className="btn btn-primary btn-sm" href={doc.openUrl} target="_blank" rel="noreferrer">
+                    {doc.type === 'link' ? <ExternalLink size={13} /> : <Download size={13} />} {doc.type === 'link' ? tr('Ссылка') : tr('Открыть файл')} {doc.size ? `(${doc.size})` : ''}
+                  </a>
+                )}
               </div>
             </div>
-          );
-        })}
+          ))}
       </div>
 
       {previewDoc && (
         <div className="modal-overlay" onClick={() => setPreviewDoc(null)}>
           <div
             className="modal"
-            onClick={e => e.stopPropagation()}
-            style={{ maxWidth: 980, width: 'calc(100vw - 40px)', height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column' }}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: '100vw',
+              width: '100vw',
+              height: '100vh',
+              borderRadius: 0,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
           >
             <div className="modal-header">
               <div className="modal-title">{previewDoc.title}</div>
-              <button className="btn btn-secondary btn-sm" onClick={() => setPreviewDoc(null)}>Закрыть</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {previewDoc.openUrl && (
+                  <a className="btn btn-primary btn-sm" href={previewDoc.openUrl} target="_blank" rel="noreferrer">
+                    {tr('Открыть в новой вкладке')}
+                  </a>
+                )}
+                <button className="btn btn-secondary btn-sm" onClick={() => setPreviewDoc(null)}>
+                  {tr('Закрыть')}
+                </button>
+              </div>
             </div>
             <div className="modal-body" style={{ flex: 1, minHeight: 0 }}>
-              <iframe
-                src={encodeURI(previewDoc.url || '')}
-                title={previewDoc.title}
-                style={{ width: '100%', height: '100%', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)' }}
-              />
-            </div>
-            <div className="modal-footer">
-              {isIntern && previewDoc.type === 'pdf' && (
-                <>
-                  <button className="btn btn-secondary btn-sm" onClick={completeReading}>
-                    Закончил чтение
-                  </button>
-                  {readDone[String(previewDoc.id)]?.done && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => openTestForDoc(previewDoc)}>
-                      Перейти к тесту
-                    </button>
-                  )}
-                </>
-              )}
-              <a
-                className="btn btn-primary btn-sm"
-                href={encodeURI(previewDoc.url || '#')}
-                target="_blank"
-                rel="noreferrer"
-                download
-              >
-                <Download size={13} /> Скачать файл
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {testDoc && (
-        <div className="modal-overlay" onClick={() => setTestDoc(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 760 }}>
-            <div className="modal-header">
-              <div className="modal-title">Тест по регламенту: {testDoc.title}</div>
-              <button className="btn btn-secondary btn-sm" onClick={() => setTestDoc(null)}>Закрыть</button>
-            </div>
-            <div className="modal-body">
-              {questions.map((q, idx) => (
-                <div key={q.id} style={{ marginBottom: 14 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{idx + 1}. {q.text}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {q.options.map((opt, i) => (
-                      <label key={opt} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
-                        <input
-                          type="radio"
-                          name={q.id}
-                          checked={Number(answers[q.id]) === i}
-                          onChange={() => setAnswers(a => ({ ...a, [q.id]: i }))}
-                        />
-                        <span>{opt}</span>
-                      </label>
-                    ))}
+              {previewDoc.openUrl ? (
+                canInlinePreview(previewDoc.openUrl) ? (
+                  <iframe
+                    src={previewDoc.openUrl}
+                    title={previewDoc.title}
+                    style={{ width: '100%', height: '100%', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)' }}
+                  />
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={{ color: 'var(--gray-500)' }}>
+                      {tr('Предпросмотр этого формата недоступен во встроенном окне. Откройте файл в новой вкладке.')}
+                    </div>
+                    <a className="btn btn-primary btn-sm" href={previewDoc.openUrl} target="_blank" rel="noreferrer" style={{ width: 'fit-content' }}>
+                      {tr('Открыть файл')}
+                    </a>
                   </div>
-                </div>
-              ))}
-              {testMsg && (
-                <div style={{ fontSize: 13, color: testMsg.includes('пройден') ? 'var(--success)' : 'var(--danger)' }}>
-                  {testMsg}
-                </div>
+                )
+              ) : (
+                <div style={{ color: 'var(--gray-500)' }}>{tr('Для этого документа не передан URL в `content/action`.')}</div>
               )}
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-primary btn-sm" onClick={submitTest}>Проверить тест</button>
             </div>
           </div>
         </div>
       )}
 
-      <div style={{ marginTop: 40, borderTop: '1px solid var(--gray-200)', paddingTop: 24 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr 1fr 1fr', gap: 32, alignItems: 'start' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <div style={{ width: 28, height: 28, background: 'var(--primary)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+      {quizDoc && (
+        <div className="modal-overlay" onClick={() => setQuizDoc(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620 }}>
+            <div className="modal-header">
+              <div className="modal-title">{tr('Мини-тест:')} {quizDoc.title}</div>
+              <button className="btn btn-secondary btn-sm" onClick={() => setQuizDoc(null)}>
+                {tr('Закрыть')}
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'grid', gap: 12 }}>
+              <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>
+                {quizDoc.quizQuestion || tr('Ответьте на вопрос по регламенту')}
               </div>
-              <span style={{ fontWeight: 700, fontSize: 15 }}>В Плюсе</span>
+              {Array.isArray(quizDoc.quizOptions) && quizDoc.quizOptions.length > 0 ? (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {quizDoc.quizOptions.map((opt, idx) => (
+                    <label key={`quiz-opt-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name={`quiz-${quizDoc.id}`}
+                        checked={quizAnswer === String(opt)}
+                        onChange={() => setQuizAnswer(String(opt))}
+                      />
+                      <span>{String(opt)}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <input
+                  className="form-input"
+                  placeholder={tr('Введите ваш ответ')}
+                  value={quizAnswer}
+                  onChange={(e) => setQuizAnswer(e.target.value)}
+                />
+              )}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>© 2025 В Плюсе. Все права защищены.</div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setQuizDoc(null)}>
+                {tr('Отмена')}
+              </button>
+              <button className="btn btn-primary" onClick={submitInternQuiz} disabled={!String(quizAnswer || '').trim()}>
+                {tr('Отправить ответ')}
+              </button>
+            </div>
           </div>
-          {[
-            { label: 'ОФИС', items: ['г. Бишкек, ул. Исанова 1'] },
-            { label: 'ЧАСЫ РАБОТЫ', items: ['Пн-Пт: 09:00 – 21:00', 'Сб: 10:00 – 18:00'] },
-            { label: 'КОНТАКТЫ', items: ['+996 (555) 00-00-00'] },
-          ].map(col => (
-            <div key={col.label}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{col.label}</div>
-              {col.items.map(item => <div key={item} style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 4 }}>{item}</div>)}
-            </div>
-          ))}
         </div>
-      </div>
+      )}
     </MainLayout>
   );
 }

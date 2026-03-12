@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import MainLayout from '../../layouts/MainLayout';
 import { Shield, Lock, Database, Activity, RefreshCw, AlertTriangle } from 'lucide-react';
+import { securityAPI } from '../../api/auth';
 import {
   addOfficeNetwork,
   getCurrentNetworkHint,
@@ -11,27 +12,52 @@ import {
   toggleOfficeNetwork,
 } from '../../utils/officeNetwork';
 
+const SECURITY_SETTINGS_KEY = 'vpluse_security_settings_v1';
+const DEFAULT_SETTINGS = {
+  sessionTimeout: '60',
+  maxLoginAttempts: '5',
+  passwordMinLength: '8',
+  requireUppercase: true,
+  requireNumbers: true,
+  twoFactor: false,
+};
+
+function readSecuritySettings() {
+  try {
+    const raw = localStorage.getItem(SECURITY_SETTINGS_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+const AUDIT_LOG = [
+  { id: 1, action: 'Создан пользователь', actor: 'Мария К.', target: 'Иванов Иван', date: '20 фев. 2026, 14:32' },
+  { id: 2, action: 'Изменена роль', actor: 'Мария К.', target: 'Алексей П. -> Администратор', date: '19 фев. 2026, 11:05' },
+  { id: 3, action: 'Деактивирован пользователь', actor: 'Иван С.', target: 'Дмитрий К.', date: '18 фев. 2026, 09:20' },
+  { id: 4, action: 'Добавлен регламент', actor: 'Елена М.', target: 'Кодекс корпоративной этики', date: '17 фев. 2026, 16:45' },
+  { id: 5, action: 'Изменены настройки безопасности', actor: 'Мария К.', target: 'Система', date: '15 фев. 2026, 10:00' },
+];
+
 export default function AdminSystem() {
-  const [settings, setSettings] = useState({
-    sessionTimeout: '60',
-    maxLoginAttempts: '5',
-    passwordMinLength: '8',
-    requireUppercase: true,
-    requireNumbers: true,
-    twoFactor: false,
-  });
+  const [settings, setSettings] = useState(readSecuritySettings);
   const [saved, setSaved] = useState(false);
   const [networks, setNetworks] = useState(getOfficeNetworks);
   const [netForm, setNetForm] = useState({ name: '', cidr: '', active: true });
   const [networkError, setNetworkError] = useState('');
   const [networkHint, setNetworkHintState] = useState(getCurrentNetworkHint());
+  const [securityBusy, setSecurityBusy] = useState({ unlock: false, logout: false });
+  const [securityResult, setSecurityResult] = useState('');
+  const [securityError, setSecurityError] = useState('');
 
   const handleSave = () => {
+    localStorage.setItem(SECURITY_SETTINGS_KEY, JSON.stringify(settings));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const toggle = (key) => setSettings(s => ({ ...s, [key]: !s[key] }));
+  const toggle = (key) => setSettings((s) => ({ ...s, [key]: !s[key] }));
   const setNetworkHint = (value) => {
     setNetworkHintState(value);
     setCurrentNetworkHint(value);
@@ -53,23 +79,39 @@ export default function AdminSystem() {
     setNetworkError('');
   };
 
-  const handleToggleNetwork = (id) => {
-    setNetworks(toggleOfficeNetwork(id));
+  const handleUnlockUsers = async () => {
+    if (!window.confirm('Сбросить блокировку входа для пользователей?')) return;
+    setSecurityBusy((s) => ({ ...s, unlock: true }));
+    setSecurityError('');
+    setSecurityResult('');
+    try {
+      const res = await securityAPI.unlockUsers({ all: true });
+      setSecurityResult(`Сброшены блокировки у пользователей: ${res.data?.updated_users ?? 0}`);
+    } catch (e) {
+      setSecurityError(e.response?.data?.detail || 'Не удалось сбросить блокировки пользователей.');
+    } finally {
+      setSecurityBusy((s) => ({ ...s, unlock: false }));
+    }
   };
 
-  const handleRemoveNetwork = (id) => {
-    setNetworks(removeOfficeNetwork(id));
+  const handleForceLogout = async () => {
+    if (!window.confirm('Завершить все активные сессии пользователей?')) return;
+    setSecurityBusy((s) => ({ ...s, logout: true }));
+    setSecurityError('');
+    setSecurityResult('');
+    try {
+      const res = await securityAPI.forceLogoutAll();
+      const sessions = res.data?.deleted_sessions ?? 0;
+      const customSessions = res.data?.deleted_custom_sessions ?? 0;
+      setSecurityResult(`Сессии завершены: ${sessions} (доп. сессии: ${customSessions}).`);
+    } catch (e) {
+      setSecurityError(e.response?.data?.detail || 'Не удалось завершить сессии пользователей.');
+    } finally {
+      setSecurityBusy((s) => ({ ...s, logout: false }));
+    }
   };
 
   const activeCount = networks.filter((n) => n.active).length;
-
-  const AUDIT_LOG = [
-    { id: 1, action: 'Создан пользователь', actor: 'Мария К.', target: 'Иванов Иван', date: '20 фев. 2026, 14:32' },
-    { id: 2, action: 'Изменена роль', actor: 'Мария К.', target: 'Алексей П. → Администратор', date: '19 фев. 2026, 11:05' },
-    { id: 3, action: 'Деактивирован пользователь', actor: 'Иван С.', target: 'Дмитрий К.', date: '18 фев. 2026, 09:20' },
-    { id: 4, action: 'Добавлен регламент', actor: 'Елена М.', target: 'Кодекс корпоративной этики', date: '17 фев. 2026, 16:45' },
-    { id: 5, action: 'Изменены настройки безопасности', actor: 'Мария К.', target: 'Система', date: '15 фев. 2026, 10:00' },
-  ];
 
   return (
     <MainLayout title="Админ-панель · Система и безопасность">
@@ -81,7 +123,6 @@ export default function AdminSystem() {
       </div>
 
       <div className="grid-2" style={{ gap: 20, marginBottom: 20 }}>
-        {/* Security settings */}
         <div className="card">
           <div className="card-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Shield size={16} color="var(--primary)" /><span className="card-title">Настройки безопасности</span></div>
@@ -90,17 +131,17 @@ export default function AdminSystem() {
             <div className="form-group">
               <label className="form-label">Таймаут сессии (минуты)</label>
               <input className="form-input" type="number" value={settings.sessionTimeout}
-                onChange={e => setSettings(s => ({ ...s, sessionTimeout: e.target.value }))} />
+                onChange={(e) => setSettings((s) => ({ ...s, sessionTimeout: e.target.value }))} />
             </div>
             <div className="form-group">
               <label className="form-label">Макс. попыток входа</label>
               <input className="form-input" type="number" value={settings.maxLoginAttempts}
-                onChange={e => setSettings(s => ({ ...s, maxLoginAttempts: e.target.value }))} />
+                onChange={(e) => setSettings((s) => ({ ...s, maxLoginAttempts: e.target.value }))} />
             </div>
             <div className="form-group">
               <label className="form-label">Минимальная длина пароля</label>
               <input className="form-input" type="number" value={settings.passwordMinLength}
-                onChange={e => setSettings(s => ({ ...s, passwordMinLength: e.target.value }))} />
+                onChange={(e) => setSettings((s) => ({ ...s, passwordMinLength: e.target.value }))} />
             </div>
 
             {[
@@ -113,14 +154,16 @@ export default function AdminSystem() {
                 <div
                   style={{
                     width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s',
-                    background: settings[key] ? 'var(--primary)' : 'var(--gray-300)', position: 'relative'
+                    background: settings[key] ? 'var(--primary)' : 'var(--gray-300)', position: 'relative',
                   }}
                   onClick={() => toggle(key)}
                 >
-                  <div style={{
-                    position: 'absolute', top: 2, left: settings[key] ? 22 : 2,
-                    width: 20, height: 20, background: 'white', borderRadius: '50%', transition: 'left 0.2s'
-                  }} />
+                  <div
+                    style={{
+                      position: 'absolute', top: 2, left: settings[key] ? 22 : 2,
+                      width: 20, height: 20, background: 'white', borderRadius: '50%', transition: 'left 0.2s',
+                    }}
+                  />
                 </div>
               </div>
             ))}
@@ -131,7 +174,6 @@ export default function AdminSystem() {
           </div>
         </div>
 
-        {/* System info */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <div className="card-body">
@@ -140,7 +182,7 @@ export default function AdminSystem() {
                 <span style={{ fontWeight: 700 }}>Состояние системы</span>
               </div>
               {[
-                { label: 'Статус', value: '● Работает', color: 'var(--success)' },
+                { label: 'Статус', value: '? Работает', color: 'var(--success)' },
                 { label: 'Версия', value: 'v1.0.0' },
                 { label: 'Последнее обновление', value: '20 фев. 2026' },
                 { label: 'Активных сессий', value: '12' },
@@ -163,10 +205,27 @@ export default function AdminSystem() {
                 <button className="btn btn-secondary" style={{ justifyContent: 'flex-start', gap: 8 }}>
                   <RefreshCw size={14} /> Сбросить кэш системы
                 </button>
-                <button className="btn" style={{ background: 'var(--danger-light)', color: 'var(--danger)', border: 'none', justifyContent: 'flex-start', gap: 8 }}>
-                  <Lock size={14} /> Принудительный выход всех пользователей
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={handleUnlockUsers}
+                  disabled={securityBusy.unlock}
+                  style={{ background: '#fff4db', color: '#a16207', border: 'none', justifyContent: 'flex-start', gap: 8 }}
+                >
+                  <Shield size={14} /> {securityBusy.unlock ? 'Сбрасываем блокировки...' : 'Сброс блокировок пользователей'}
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={handleForceLogout}
+                  disabled={securityBusy.logout}
+                  style={{ background: 'var(--danger-light)', color: 'var(--danger)', border: 'none', justifyContent: 'flex-start', gap: 8 }}
+                >
+                  <Lock size={14} /> {securityBusy.logout ? 'Завершаем сессии...' : 'Принудительный выход всех пользователей'}
                 </button>
               </div>
+              {securityResult ? <div style={{ marginTop: 10, color: 'var(--success)', fontSize: 13 }}>{securityResult}</div> : null}
+              {securityError ? <div style={{ marginTop: 10, color: 'var(--danger)', fontSize: 13 }}>{securityError}</div> : null}
             </div>
           </div>
         </div>
@@ -223,9 +282,7 @@ export default function AdminSystem() {
             />
           </div>
 
-          {networkError && (
-            <div style={{ fontSize: 12, color: 'var(--danger)' }}>{networkError}</div>
-          )}
+          {networkError && <div style={{ fontSize: 12, color: 'var(--danger)' }}>{networkError}</div>}
 
           <div className="table-wrap">
             <table className="table">
@@ -244,14 +301,14 @@ export default function AdminSystem() {
                     <td>{n.cidr}</td>
                     <td>{n.active ? 'Активна' : 'Отключена'}</td>
                     <td>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleToggleNetwork(n.id)}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNetworks(toggleOfficeNetwork(n.id))}>
                         {n.active ? 'Выключить' : 'Включить'}
                       </button>
                       <button
                         type="button"
                         className="btn btn-sm"
                         style={{ marginLeft: 8, background: 'var(--danger-light)', color: 'var(--danger)', border: 'none' }}
-                        onClick={() => handleRemoveNetwork(n.id)}
+                        onClick={() => setNetworks(removeOfficeNetwork(n.id))}
                       >
                         Удалить
                       </button>
@@ -261,13 +318,10 @@ export default function AdminSystem() {
               </tbody>
             </table>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
-            Активных сетей: {activeCount}
-          </div>
+          <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Активных сетей: {activeCount}</div>
         </div>
       </div>
 
-      {/* Audit log */}
       <div className="card">
         <div className="card-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Activity size={16} color="var(--primary)" /><span className="card-title">Журнал действий</span></div>
@@ -278,12 +332,12 @@ export default function AdminSystem() {
               <tr><th>Действие</th><th>Инициатор</th><th>Объект</th><th>Дата и время</th></tr>
             </thead>
             <tbody>
-              {AUDIT_LOG.map(log => (
-                <tr key={log.id}>
-                  <td style={{ fontWeight: 500, fontSize: 13 }}>{log.action}</td>
-                  <td style={{ fontSize: 13 }}>{log.actor}</td>
-                  <td style={{ fontSize: 13, color: 'var(--gray-500)' }}>{log.target}</td>
-                  <td style={{ fontSize: 12, color: 'var(--gray-400)' }}>{log.date}</td>
+              {AUDIT_LOG.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.action}</td>
+                  <td>{item.actor}</td>
+                  <td>{item.target}</td>
+                  <td>{item.date}</td>
                 </tr>
               ))}
             </tbody>

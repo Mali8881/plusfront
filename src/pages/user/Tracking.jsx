@@ -21,17 +21,9 @@ const fmtDur = (sec) => {
 
 const today = () => new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
-const INIT_LOGS = [
-  { id: 1, project: 'Разработка платформы', task: 'Верстка компонентов',      date: '23.02.2026', dur: 7200  },
-  { id: 2, project: 'Маркетинг',            task: 'Подготовка презентации',   date: '23.02.2026', dur: 3600  },
-  { id: 3, project: 'Митинги',              task: 'Еженедельный митинг',       date: '22.02.2026', dur: 2700  },
-  { id: 4, project: 'Разработка платформы', task: 'Code review',               date: '22.02.2026', dur: 5400  },
-  { id: 5, project: 'Онбординг стажёров',   task: 'Проверка отчётов',         date: '21.02.2026', dur: 1800  },
-];
-
 export default function Tracking() {
   const { user } = useAuth();
-  const [logs,      setLogs]    = useState(INIT_LOGS);
+  const [logs,      setLogs]    = useState([]);
   const [running,   setRunning] = useState(false);
   const [elapsed,   setElapsed] = useState(0);
   const [project,   setProject] = useState(PROJECTS[0]);

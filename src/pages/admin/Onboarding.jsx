@@ -1,100 +1,127 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle, Eye, RotateCcw, X, XCircle } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
-import { USERS, ONBOARDING_DAYS } from '../../data/mockData';
-import { CheckCircle, XCircle, RotateCcw, Eye, X, MessageSquare } from 'lucide-react';
+import { onboardingAPI } from '../../api/content';
 
-const STATUS = { draft: { label: 'Черновик', cls: 'badge-gray' }, sent: { label: 'Отправлен', cls: 'badge-blue' }, accepted: { label: 'Принят', cls: 'badge-green' }, rework: { label: 'На доработке', cls: 'badge-yellow' }, rejected: { label: 'Отклонён', cls: 'badge-red' } };
-
-const REPORTS = [
-  { id: 1, user: USERS[0], day: 1, date: '25 Окт 2025', status: 'sent', did: 'Изучил внутренние регламенты компании, ознакомился со структурой отделов. Прошёл вводный инструктаж по безопасности. Настроил рабочее окружение.', willDo: 'Завтра планирую начать изучение модуля по продукту и встретиться с ментором.', blockers: 'Проблем не возникло, все доступы работают корректно.' },
-  { id: 2, user: USERS[2], day: 1, date: '25 Окт 2025', status: 'draft', did: '', willDo: '', blockers: '' },
-];
-
-const INTERN_TASK_PROGRESS = {
-  1: { 1: { done: 3, total: 4 }, 2: { done: 1, total: 2 } },
-  3: { 1: { done: 2, total: 4 }, 2: { done: 0, total: 2 } },
-  5: { 1: { done: 1, total: 4 }, 2: { done: 0, total: 2 } },
+const STATUS = {
+  DRAFT: { label: 'Черновик', cls: 'badge-gray' },
+  SENT: { label: 'Отправлен', cls: 'badge-blue' },
+  ACCEPTED: { label: 'Принят', cls: 'badge-green' },
+  REVISION: { label: 'На доработке', cls: 'badge-yellow' },
+  REJECTED: { label: 'Отклонен', cls: 'badge-red' },
 };
 
 export default function AdminOnboarding() {
-  const [reports, setReports] = useState(REPORTS);
+  const [days, setDays] = useState([]);
+  const [reports, setReports] = useState([]);
   const [selected, setSelected] = useState(null);
   const [comment, setComment] = useState('');
-  const [tab, setTab] = useState('reports');
-  const [toast, setToast] = useState(null);
-  const interns = USERS.filter(u => u.role === 'intern');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
+  const [progressDetails, setProgressDetails] = useState(null);
+  const [progressLoading, setProgressLoading] = useState(false);
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
-  const getDayProgress = (userId, dayId) => INTERN_TASK_PROGRESS[userId]?.[dayId] || { done: 0, total: 0 };
-  const getDayPercent = (userId, dayId) => {
-    const { done, total } = getDayProgress(userId, dayId);
-    return total > 0 ? Math.round((done / total) * 100) : 0;
-  };
-  const getTotalPercent = (userId) => {
-    const perDays = ONBOARDING_DAYS.map(d => getDayProgress(userId, d.id));
-    const done = perDays.reduce((sum, d) => sum + d.done, 0);
-    const total = perDays.reduce((sum, d) => sum + d.total, 0);
-    return total > 0 ? Math.round((done / total) * 100) : 0;
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [daysRes, reportsRes] = await Promise.all([
+        onboardingAPI.listDays(),
+        onboardingAPI.getReports(),
+      ]);
+      setDays(Array.isArray(daysRes.data) ? daysRes.data : []);
+      setReports(Array.isArray(reportsRes.data) ? reportsRes.data : []);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось загрузить onboarding данные.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const setStatus = (id, status) => {
-    setReports(rs => rs.map(r => r.id === id ? { ...r, status, comment: status === 'rework' ? comment : r.comment } : r));
-    setSelected(null);
-    setComment('');
-    showToast(status === 'accepted' ? 'Отчёт принят' : status === 'rework' ? 'Отправлен на доработку' : 'Отчёт отклонён');
+  useEffect(() => {
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (!selected?.user_id) {
+      setProgressDetails(null);
+      return;
+    }
+    const run = async () => {
+      setProgressLoading(true);
+      try {
+        const res = await onboardingAPI.getInternProgress(selected.user_id);
+        setProgressDetails(res.data || null);
+      } catch {
+        setProgressDetails(null);
+      } finally {
+        setProgressLoading(false);
+      }
+    };
+    run();
+  }, [selected?.user_id]);
+
+  const grouped = useMemo(() => {
+    const map = new Map();
+    reports.forEach((r) => {
+      const key = `${r.user_id}:${r.full_name || r.username || r.user_id}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(r);
+    });
+    return Array.from(map.entries()).map(([key, items]) => {
+      const [userId, name] = key.split(':');
+      const done = items.filter((x) => String(x.status || '').toUpperCase() === 'ACCEPTED').length;
+      return { userId, name, done, total: Math.max(days.length, items.length), items };
+    });
+  }, [reports, days]);
+
+  const review = async (reportId, status) => {
+    try {
+      await onboardingAPI.reviewReport(reportId, {
+        status,
+        comment,
+      });
+      setSelected(null);
+      setComment('');
+      setToast(status === 'ACCEPTED' ? 'Отчет принят' : status === 'REVISION' ? 'Отправлен на доработку' : 'Отчет отклонен');
+      setTimeout(() => setToast(''), 2500);
+      await load();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось изменить статус отчета.');
+    }
   };
 
   return (
-    <MainLayout title="Админ-панель · Онбординг / Отчёты">
+    <MainLayout title="Админ-панель · Онбординг / Отчеты">
       <div className="page-header">
-        <div className="page-title">Онбординг / Отчёты</div>
-        <div className="page-subtitle">Управление программами онбординга и проверка отчётов стажёров</div>
+        <div className="page-title">Онбординг / Отчеты</div>
+        <div className="page-subtitle">Проверка отчетов стажеров и контроль прогресса</div>
       </div>
 
-      <div className="tabs">
-        <button className={`tab-btn ${tab === 'reports' ? 'active' : ''}`} onClick={() => setTab('reports')}>Отчёты стажёров</button>
-        <button className={`tab-btn ${tab === 'programs' ? 'active' : ''}`} onClick={() => setTab('programs')}>Программы</button>
-        <button className={`tab-btn ${tab === 'days' ? 'active' : ''}`} onClick={() => setTab('days')}>Дни онбординга</button>
-      </div>
+      {error && <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: '#b91c1c' }}>{error}</div></div>}
+      {loading && <div className="card"><div className="card-body">Загрузка...</div></div>}
 
-      {tab === 'reports' && (
+      {!loading && (
         <div style={{ display: 'grid', gap: 14 }}>
           <div className="card">
-            <div className="card-header">
-              <span className="card-title">Прогресс тестовых задач по стажёрам</span>
-            </div>
-            <div className="card-body" style={{ display: 'grid', gap: 12 }}>
-              {interns.map(intern => {
-                const totalPercent = getTotalPercent(intern.id);
+            <div className="card-header"><span className="card-title">Прогресс стажеров</span></div>
+            <div className="card-body" style={{ display: 'grid', gap: 10 }}>
+              {grouped.map((item) => {
+                const percent = item.total > 0 ? Math.round((item.done / item.total) * 100) : 0;
                 return (
-                  <div key={intern.id} style={{ border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', padding: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 600 }}>{intern.name}</div>
-                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{intern.department}</div>
-                      </div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: totalPercent === 100 ? 'var(--success)' : 'var(--primary)' }}>
-                        Общий прогресс: {totalPercent}%
-                      </div>
+                  <div key={item.userId} style={{ border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div style={{ fontWeight: 600 }}>{item.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{item.done}/{item.total} дней принято</div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                      {ONBOARDING_DAYS.map(day => {
-                        const p = getDayProgress(intern.id, day.id);
-                        const percent = getDayPercent(intern.id, day.id);
-                        return (
-                          <div key={day.id} style={{ background: 'var(--gray-50)', border: '1px solid var(--gray-200)', borderRadius: 10, padding: '8px 10px' }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 5 }}>День {day.dayNumber}</div>
-                            <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 6 }}>{p.done}/{p.total} задач</div>
-                            <div style={{ height: 6, background: 'var(--gray-200)', borderRadius: 999, overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${percent}%`, background: percent === 100 ? '#16A34A' : '#2563EB' }} />
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <div style={{ height: 7, background: 'var(--gray-200)', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${percent}%`, background: percent === 100 ? '#16A34A' : '#2563EB' }} />
                     </div>
                   </div>
                 );
               })}
+              {grouped.length === 0 && <div style={{ color: 'var(--gray-500)' }}>Отчетов пока нет.</div>}
             </div>
           </div>
 
@@ -103,57 +130,37 @@ export default function AdminOnboarding() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>СТАЖЁР</th>
+                    <th>СТАЖЕР</th>
                     <th>ДЕНЬ</th>
-                    <th>ПРОГРЕСС ЗАДАЧ</th>
-                    <th>ДАТА</th>
+                    <th>ОБНОВЛЕНО</th>
                     <th>СТАТУС</th>
                     <th>ДЕЙСТВИЯ</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {reports.map(r => {
-                    const progress = getDayProgress(r.user.id, r.day);
-                    const percent = getDayPercent(r.user.id, r.day);
-                    return (
-                      <tr key={r.id}>
-                        <td>
-                          <div className="user-cell">
-                            <div className="avatar" style={{ width: 30, height: 30, fontSize: 11 }}>
-                              {r.user.name.split(' ').map(p => p[0]).join('').slice(0, 2)}
-                            </div>
-                            <div>
-                              <div style={{ fontWeight: 500, fontSize: 13 }}>{r.user.name}</div>
-                              <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>{r.user.department}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td>День {r.day}</td>
-                        <td>
-                          <div style={{ minWidth: 160 }}>
-                            <div style={{ fontSize: 12, color: 'var(--gray-600)', marginBottom: 4 }}>{progress.done}/{progress.total} задач · {percent}%</div>
-                            <div style={{ height: 6, background: 'var(--gray-200)', borderRadius: 999, overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${percent}%`, background: percent === 100 ? '#16A34A' : '#2563EB' }} />
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{ fontSize: 13, color: 'var(--gray-500)' }}>{r.date}</td>
-                        <td><span className={`badge ${STATUS[r.status]?.cls}`}>{STATUS[r.status]?.label}</span></td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <button className="btn-icon" onClick={() => setSelected(r)} title="Просмотр"><Eye size={14} /></button>
-                            {r.status === 'sent' && (
-                              <>
-                                <button className="btn-icon" style={{ color: 'var(--success)' }} onClick={() => setStatus(r.id, 'accepted')} title="Принять"><CheckCircle size={14} /></button>
-                                <button className="btn-icon" style={{ color: 'var(--warning)' }} onClick={() => { setSelected(r); }} title="На доработку"><RotateCcw size={14} /></button>
-                                <button className="btn-icon" style={{ color: 'var(--danger)' }} onClick={() => setStatus(r.id, 'rejected')} title="Отклонить"><XCircle size={14} /></button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {reports.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.full_name || r.username || r.user_id}</td>
+                      <td>День {r.day_number}</td>
+                      <td>{String(r.updated_at || '').slice(0, 16).replace('T', ' ')}</td>
+                      <td><span className={`badge ${STATUS[r.status]?.cls || 'badge-gray'}`}>{STATUS[r.status]?.label || r.status}</span></td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button className="btn-icon" onClick={() => setSelected(r)} title="Просмотр"><Eye size={14} /></button>
+                          {r.status === 'SENT' && (
+                            <>
+                              <button className="btn-icon" style={{ color: 'var(--success)' }} onClick={() => review(r.id, 'ACCEPTED')} title="Принять"><CheckCircle size={14} /></button>
+                              <button className="btn-icon" style={{ color: 'var(--warning)' }} onClick={() => setSelected(r)} title="На доработку"><RotateCcw size={14} /></button>
+                              <button className="btn-icon" style={{ color: 'var(--danger)' }} onClick={() => review(r.id, 'REJECTED')} title="Отклонить"><XCircle size={14} /></button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {reports.length === 0 && (
+                    <tr><td colSpan={5}>Отчетов пока нет.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -161,73 +168,54 @@ export default function AdminOnboarding() {
         </div>
       )}
 
-      {tab === 'programs' && (
-        <div className="card">
-          <div className="card-body">
-            <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>Программы онбординга по отделам будут здесь.</p>
-          </div>
-        </div>
-      )}
-
-      {tab === 'days' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {ONBOARDING_DAYS.map(d => (
-            <div key={d.id} className="card">
-              <div className="card-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 15 }}>День {d.dayNumber}: {d.title}</div>
-                  <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>{d.stage} · {d.docs.length} документов · {d.taskTitles.length} задач</div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-secondary btn-sm">Редактировать</button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Report detail modal */}
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>
-          <div className="modal" style={{ width: 620 }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ width: 680 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <div className="modal-title">Отчёт — {selected.user.name}, День {selected.day}</div>
+              <div className="modal-title">Отчет: {selected.full_name || selected.username} · День {selected.day_number}</div>
               <button className="btn-icon" onClick={() => setSelected(null)}><X size={18} /></button>
             </div>
             <div className="modal-body">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, background: 'var(--gray-50)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 16 }}>
-                {[['ДЕНЬ', `День ${selected.day}`], ['ДАТА', selected.date], ['АВТОР', selected.user.name.split(' ')[0]], ['СТАТУС', selected.status]].map(([l, v]) => (
-                  <div key={l}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', marginBottom: 2 }}>{l}</div>
-                    {l === 'СТАТУС'
-                      ? <span className={`badge ${STATUS[v]?.cls}`}>{STATUS[v]?.label}</span>
-                      : <div style={{ fontSize: 13, fontWeight: 600 }}>{v}</div>
-                    }
-                  </div>
-                ))}
+              <ViewBlock label="Что сделал" value={selected.did} />
+              <ViewBlock label="Что буду делать" value={selected.will_do} />
+              <ViewBlock label="Проблемы" value={selected.problems} />
+
+              <div style={{ border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', padding: 10, marginBottom: 12 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Детальный прогресс стажера</div>
+                {progressLoading ? (
+                  <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>Загрузка...</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)', marginBottom: 8 }}>
+                      День: {progressDetails?.overview?.current_day_number || '-'} | Выполнено дней: {progressDetails?.overview?.completed_days || 0}/{progressDetails?.overview?.total_days || 0}
+                    </div>
+                    <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--gray-200)', borderRadius: 8, padding: 8 }}>
+                      {(progressDetails?.regulations || []).map((item) => (
+                        <div key={item.id} style={{ fontSize: 12, marginBottom: 6 }}>
+                          День {item.day_number} • {item.title} • шаг: {item.step} • тест: {item.quiz_score}/{item.quiz_total} • фидбек: {item.feedback ? 'да' : 'нет'}
+                        </div>
+                      ))}
+                      {(progressDetails?.regulations || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Нет данных по регламентам.</div>}
+                    </div>
+                  </>
+                )}
               </div>
-              {[['Что сделал', selected.did || '—'], ['Что буду делать', selected.willDo || '—'], ['Какие проблемы возникли', selected.blockers || '—']].map(([label, val]) => (
-                <div key={label} style={{ marginBottom: 14 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{label}</div>
-                  <div style={{ fontSize: 13, color: 'var(--gray-700)', background: 'var(--gray-50)', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', padding: '10px 14px', lineHeight: 1.6 }}>{val}</div>
-                </div>
-              ))}
-              {selected.status === 'sent' && (
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Комментарий (для доработки)</div>
-                  <textarea className="form-textarea" value={comment} onChange={e => setComment(e.target.value)} placeholder="Напишите комментарий для стажёра..." style={{ minHeight: 80 }} />
+
+              {selected.status === 'SENT' && (
+                <div className="form-group">
+                  <label className="form-label">Комментарий</label>
+                  <textarea className="form-textarea" value={comment} onChange={(e) => setComment(e.target.value)} style={{ minHeight: 90 }} />
                 </div>
               )}
             </div>
-            {selected.status === 'sent' && (
+            {selected.status === 'SENT' && (
               <div className="modal-footer">
                 <button className="btn btn-secondary" onClick={() => setSelected(null)}>Закрыть</button>
-                <button className="btn btn-sm" style={{ background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047' }} onClick={() => setStatus(selected.id, 'rework')}>
+                <button className="btn btn-sm" style={{ background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047' }} onClick={() => review(selected.id, 'REVISION')}>
                   <RotateCcw size={13} /> На доработку
                 </button>
-                <button className="btn btn-danger btn-sm" onClick={() => setStatus(selected.id, 'rejected')}>Отклонить</button>
-                <button className="btn btn-primary btn-sm" onClick={() => setStatus(selected.id, 'accepted')}>
+                <button className="btn btn-danger btn-sm" onClick={() => review(selected.id, 'REJECTED')}>Отклонить</button>
+                <button className="btn btn-primary btn-sm" onClick={() => review(selected.id, 'ACCEPTED')}>
                   <CheckCircle size={13} /> Принять
                 </button>
               </div>
@@ -236,11 +224,18 @@ export default function AdminOnboarding() {
         </div>
       )}
 
-      {toast && (
-        <div className="toast toast-success">
-          <div><div className="toast-title">Готово</div><div className="toast-msg">{toast}</div></div>
-        </div>
-      )}
+      {toast && <div className="toast toast-success"><div><div className="toast-title">Готово</div><div className="toast-msg">{toast}</div></div></div>}
     </MainLayout>
+  );
+}
+
+function ViewBlock({ label, value }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--gray-700)', background: 'var(--gray-50)', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', padding: '10px 14px', lineHeight: 1.5 }}>
+        {value || '—'}
+      </div>
+    </div>
   );
 }

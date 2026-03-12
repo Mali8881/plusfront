@@ -1203,3 +1203,70 @@ input, textarea, select { font-family: var(--font); }
     width: 220px;
   }
 }
+
+/* Weekly schedule attendance tone */
+.schedule-entry-card {
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.schedule-entry-card--gray {
+  background: #F3F4F6;
+  border-color: #D1D5DB;
+}
+.schedule-entry-card--red {
+  background: #FEF2F2;
+  border-color: #FECACA;
+}
+.schedule-entry-card--green {
+  background: #F0FDF4;
+  border-color: #BBF7D0;
+}
+.schedule-entry-card--blue {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+}
+.schedule-entry-user {
+  font-weight: 700;
+}
+
+/* ─── ErrorBoundary ─────────────────────────────────────────── */
+.error-boundary {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; background: var(--gray-50);
+}
+.error-boundary__box {
+  text-align: center; max-width: 400px; padding: 48px 32px;
+  background: var(--white); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.error-boundary__icon { font-size: 48px; margin-bottom: 16px; }
+.error-boundary__title { font-size: 22px; font-weight: 700; color: var(--gray-900); margin-bottom: 8px; }
+.error-boundary__message { font-size: 14px; color: var(--gray-500); margin-bottom: 24px; }
+.error-boundary__btn {
+  padding: 10px 24px; background: var(--primary); color: #fff;
+  border: none; border-radius: var(--radius); font-size: 14px;
+  font-weight: 600; cursor: pointer;
+}
+.error-boundary__btn:hover { background: var(--primary-hover); }
+
+/* ─── Toast ─────────────────────────────────────────────────── */
+.toast-container {
+  position: fixed; bottom: 24px; right: 24px;
+  display: flex; flex-direction: column; gap: 8px;
+  z-index: 9999; max-width: 360px;
+}
+.toast {
+  padding: 12px 16px; border-radius: var(--radius);
+  font-size: 14px; font-weight: 500; line-height: 1.4;
+  box-shadow: var(--shadow-lg); cursor: pointer;
+  animation: toast-in 0.2s ease;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast-error   { background: var(--danger);  color: #fff; }
+.toast-success { background: var(--success); color: #fff; }
+.toast-info    { background: var(--primary); color: #fff; }
+.toast-warning { background: var(--warning); color: #fff; }

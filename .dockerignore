@@ -3,8 +3,7 @@ dist/
 .env
 .env.production
 .env.local
-.DS_Store
-.vscode/
-.idea/
+.git/
+.gitignore
 *.log
-vpluse_second/
+venv/

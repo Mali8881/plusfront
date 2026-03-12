@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Pencil, Lock, Send, Check, Ban, X } from 'lucide-react';
+import { Plus, Search, Pencil, Lock, Send, Check, Ban, X, MessageSquare } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -14,11 +14,23 @@ const ROLE_LABELS = {
   intern: 'Стажер',
   employee: 'Сотрудник',
   projectmanager: 'Тимлид',
-  department_head: 'Руководитель отдела',
+  department_head: 'Рук. отдела',
   admin: 'Админ',
   administrator: 'Администратор',
   superadmin: 'Суперадмин',
 };
+
+const ROLE_BADGE = {
+  intern:         { bg: '#EFF6FF', color: '#2563EB' },
+  employee:       { bg: '#F0FDF4', color: '#16A34A' },
+  projectmanager: { bg: '#FAF5FF', color: '#7C3AED' },
+  department_head:{ bg: '#FFF7ED', color: '#EA580C' },
+  admin:          { bg: '#FFF7ED', color: '#EA580C' },
+  administrator:  { bg: '#FFF7ED', color: '#EA580C' },
+  superadmin:     { bg: '#FFF1F2', color: '#BE123C' },
+};
+
+const PRIVILEGED_ROLES = new Set(['department_head', 'admin', 'administrator', 'superadmin']);
 
 const EMPTY_FORM = {
   name: '',
@@ -28,13 +40,40 @@ const EMPTY_FORM = {
   manager: '',
   role: 'intern',
   password: '',
+  notes: '',
 };
+
+function extractApiError(error, fallback) {
+  const data = error?.response?.data;
+  if (!data) return fallback;
+  if (typeof data === 'string') return data;
+  if (typeof data.detail === 'string') return data.detail;
+  if (typeof data.error === 'string') return data.error;
+
+  const firstField = Object.keys(data)[0];
+  if (!firstField) return fallback;
+  const value = data[firstField];
+  if (Array.isArray(value) && value.length) return String(value[0]);
+  if (typeof value === 'string') return value;
+  return fallback;
+}
 
 function splitName(fullName) {
   const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { first_name: '', last_name: '' };
   if (parts.length === 1) return { first_name: parts[0], last_name: '' };
   return { first_name: parts[0], last_name: parts.slice(1).join(' ') };
+}
+
+function fixedSubdivisionLabelByRole(role) {
+  const map = {
+    projectmanager: 'Вся команда',
+    department_head: 'Весь отдел',
+    admin: 'Вся организация',
+    administrator: 'Вся организация',
+    superadmin: 'Вся система',
+  };
+  return map[role] || '-';
 }
 
 function mapUser(raw) {
@@ -52,14 +91,8 @@ function mapUser(raw) {
     managerId: raw.manager || null,
     managerName: raw.manager_name || '',
     status: raw.is_active ? 'active' : 'blocked',
+    notes: raw.notes || '',
   };
-}
-
-function fixedSubdivisionLabelByRole(role) {
-  if (role === 'projectmanager') return 'Тимлид';
-  if (role === 'department_head') return 'Руководитель';
-  if (role === 'admin') return 'Админ';
-  return '';
 }
 
 export default function AdminUsers() {
@@ -71,54 +104,84 @@ export default function AdminUsers() {
   const [internRequests, setInternRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filterDept, setFilterDept] = useState('');
+  const [filterSub, setFilterSub] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
+  const [savingUser, setSavingUser] = useState(false);
 
-  const isAdminOrSuper = isSuperAdmin || user?.role === 'admin' || user?.role === 'administrator' || user?.role === 'department_head';
-  const canAssignAdminRoles = isSuperAdmin || user?.role === 'admin' || user?.role === 'administrator';
-  const isDepartmentHead = user?.role === 'department_head';
+  const myRole = String(user?.role || '').toLowerCase();
+  const isSuperOrAdmin = isSuperAdmin || myRole === 'administrator';
+  const isDepartmentHead = myRole === 'department_head';
+  const canAssignAdminRoles = isSuperOrAdmin || myRole === 'admin';
   const ownDepartmentId = user?.department ? String(user.department) : '';
+
+  const canEdit = (target) => {
+    if (isSuperOrAdmin) return true;
+    if (isDepartmentHead || myRole === 'admin') return !PRIVILEGED_ROLES.has(target.role);
+    return false;
+  };
 
   const loadAll = async () => {
     setLoading(true);
     setError('');
     try {
-      const [usersRes, depRes, subRes, promotionRes] = await Promise.all([
+      const [usersRes, depRes, subRes, promotionRes, internReqRes] = await Promise.allSettled([
         usersAPI.list(),
         departmentsAPI.list(),
         subdivisionsAPI.list({ is_active: true }),
         promotionRequestsAPI.list(),
+        regulationsAPI.adminInternRequests({ status: 'pending' }),
       ]);
-      const internReqRes = await regulationsAPI.adminInternRequests({ status: 'pending' }).catch(() => ({ data: [] }));
-      setUsers((Array.isArray(usersRes.data) ? usersRes.data : []).map(mapUser));
-      setDepartments(Array.isArray(depRes.data) ? depRes.data : []);
-      setSubdivisions(Array.isArray(subRes.data) ? subRes.data : []);
-      setPromotionRequests(Array.isArray(promotionRes.data) ? promotionRes.data : []);
-      setInternRequests(Array.isArray(internReqRes.data) ? internReqRes.data : []);
+
+      const usersData = usersRes.status === 'fulfilled' ? usersRes.value?.data : [];
+      const departmentsData = depRes.status === 'fulfilled' ? depRes.value?.data : [];
+      const subdivisionsData = subRes.status === 'fulfilled' ? subRes.value?.data : [];
+      const promotionsData = promotionRes.status === 'fulfilled' ? promotionRes.value?.data : [];
+      const internReqData = internReqRes.status === 'fulfilled' ? internReqRes.value?.data : [];
+
+      setUsers((Array.isArray(usersData) ? usersData : []).map(mapUser));
+      setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
+      setSubdivisions(Array.isArray(subdivisionsData) ? subdivisionsData : []);
+      setPromotionRequests(Array.isArray(promotionsData) ? promotionsData : []);
+      setInternRequests(Array.isArray(internReqData) ? internReqData : []);
+
+      const failed = [];
+      if (usersRes.status === 'rejected') failed.push('пользователи');
+      if (depRes.status === 'rejected') failed.push('отделы');
+      if (subRes.status === 'rejected') failed.push('подотделы');
+      if (promotionRes.status === 'rejected') failed.push('заявки на перевод');
+      if (failed.length) setError(`Часть данных не загружена: ${failed.join(', ')}.`);
     } catch {
-      setError('Не удалось загрузить данные.');
+      setError('Не удалось загрузить данные страницы.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadAll();
-  }, []);
+  useEffect(() => { loadAll(); }, []);
+
+  const filterSubOptions = useMemo(() => {
+    if (!filterDept) return subdivisions;
+    return subdivisions.filter((s) => Number(s.department_id) === Number(filterDept));
+  }, [subdivisions, filterDept]);
 
   const filtered = useMemo(() => {
+    let list = users;
+    if (filterDept) list = list.filter((u) => Number(u.departmentId) === Number(filterDept));
+    if (filterSub)  list = list.filter((u) => Number(u.subdivisionId) === Number(filterSub));
     const q = search.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
-      (u) =>
-        u.name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        u.department.toLowerCase().includes(q) ||
-        u.position.toLowerCase().includes(q)
+    if (q) list = list.filter((u) =>
+      u.name.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      u.department.toLowerCase().includes(q) ||
+      u.position.toLowerCase().includes(q) ||
+      (u.notes || '').toLowerCase().includes(q)
     );
-  }, [users, search]);
+    return list;
+  }, [users, search, filterDept, filterSub]);
 
   const pending = useMemo(
     () => promotionRequests.filter((r) => r.status === 'pending'),
@@ -140,16 +203,18 @@ export default function AdminUsers() {
     setForm({
       name: target.name,
       email: target.email,
-      department: target.departmentId || '',
-      subdivision: target.subdivisionId || '',
-      manager: target.managerId || '',
+      department: target.departmentId ? String(target.departmentId) : '',
+      subdivision: target.subdivisionId ? String(target.subdivisionId) : '',
+      manager: target.managerId ? String(target.managerId) : '',
       role: target.role || 'intern',
       password: '',
+      notes: target.notes || '',
     });
     setShowModal(true);
   };
 
   const saveUser = async () => {
+    if (savingUser) return;
     if (!form.name || !form.email) return;
     const name = splitName(form.name);
     let departmentPayload = form.department || null;
@@ -168,15 +233,19 @@ export default function AdminUsers() {
       subdivision: supportsSubdivision ? (form.subdivision || null) : null,
       manager: form.role === 'projectmanager' ? null : (form.manager || null),
       role: form.role,
+      notes: form.notes || '',
     };
     if (form.password) payload.password = form.password;
     try {
+      setSavingUser(true);
       if (editUser) await usersAPI.update(editUser.id, payload);
       else await usersAPI.create(payload);
       setShowModal(false);
       await loadAll();
-    } catch {
-      setError('Не удалось сохранить пользователя.');
+    } catch (e) {
+      setError(extractApiError(e, 'Не удалось сохранить пользователя.'));
+    } finally {
+      setSavingUser(false);
     }
   };
 
@@ -253,14 +322,14 @@ export default function AdminUsers() {
       <div className="page-header">
         <div>
           <div className="page-title">Пользователи</div>
-          <div className="page-subtitle">Управление сотрудниками через backend API</div>
+          <div className="page-subtitle">{`Управление сотрудниками · ${filtered.length} из ${users.length}`}</div>
         </div>
-        <button className="btn btn-primary" onClick={openAdd}><Plus size={15} /> Добавить</button>
+        <button className="btn btn-primary" onClick={openAdd} disabled={savingUser}><Plus size={15} /> Добавить</button>
       </div>
 
       {error ? <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div> : null}
 
-      {isSuperAdmin ? (
+      {isSuperOrAdmin ? (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-header">
             <span className="card-title">Заявки на перевод</span>
@@ -313,15 +382,40 @@ export default function AdminUsers() {
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-body" style={{ padding: '14px 20px' }}>
-          <div style={{ position: 'relative' }}>
-            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
-            <input
-              className="form-input"
-              style={{ paddingLeft: 32 }}
-              placeholder="Поиск..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: '1 1 220px' }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
+              <input
+                className="form-input"
+                style={{ paddingLeft: 32 }}
+                placeholder="Поиск по имени, email, заметкам..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <select
+              className="form-select"
+              style={{ flex: '0 1 180px' }}
+              value={filterDept}
+              onChange={(e) => { setFilterDept(e.target.value); setFilterSub(''); }}
+            >
+              <option value="">Все отделы</option>
+              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <select
+              className="form-select"
+              style={{ flex: '0 1 180px' }}
+              value={filterSub}
+              onChange={(e) => setFilterSub(e.target.value)}
+            >
+              <option value="">Все подотделы</option>
+              {filterSubOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            {(filterDept || filterSub || search) ? (
+              <button className="btn btn-secondary btn-sm" onClick={() => { setSearch(''); setFilterDept(''); setFilterSub(''); }}>
+                <X size={13} /> Сбросить
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -335,42 +429,71 @@ export default function AdminUsers() {
               <thead>
                 <tr>
                   <th>Пользователь</th>
-                  <th>Должность</th>
                   <th>Отдел</th>
+                  <th>Подотдел</th>
                   <th>Роль</th>
+                  <th>Заметка</th>
                   <th>Статус</th>
                   <th>Действия</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((u) => (
-                  <tr key={u.id}>
-                    <td>
-                      <div className="user-cell">
-                        <div className="avatar" style={{ width: 34, height: 34, fontSize: 12 }}>
-                          {(u.name || '?').split(' ').map((p) => p[0]).join('').slice(0, 2)}
+                {filtered.length === 0 ? (
+                  <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--gray-400)', padding: 24 }}>Пользователи не найдены</td></tr>
+                ) : null}
+                {filtered.map((u) => {
+                  const badge = ROLE_BADGE[u.role] || { bg: '#F3F4F6', color: '#6B7280' };
+                  return (
+                    <tr key={u.id}>
+                      <td>
+                        <div className="user-cell">
+                          <div className="avatar" style={{ width: 34, height: 34, fontSize: 12 }}>
+                            {(u.name || '?').split(' ').map((p) => p[0]).join('').slice(0, 2)}
+                          </div>
+                          <div>
+                            <div className="user-cell-name">{u.name}</div>
+                            <div className="user-cell-email">{u.email}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="user-cell-name">{u.name}</div>
-                          <div className="user-cell-email">{u.email}</div>
+                      </td>
+                      <td style={{ fontSize: 13 }}>{u.department || '—'}</td>
+                      <td style={{ fontSize: 13 }}>{u.subdivisionName || '—'}</td>
+                      <td>
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: badge.bg, color: badge.color }}>
+                          {ROLE_LABELS[u.role] || u.role}
+                        </span>
+                      </td>
+                      <td style={{ maxWidth: 160 }}>
+                        {u.notes ? (
+                          <span title={u.notes} style={{ fontSize: 12, color: 'var(--gray-600)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <MessageSquare size={12} color="var(--gray-400)" style={{ flexShrink: 0 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.notes}</span>
+                          </span>
+                        ) : <span style={{ color: 'var(--gray-300)', fontSize: 12 }}>—</span>}
+                      </td>
+                      <td>
+                        <span style={{
+                          fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20,
+                          background: u.status === 'active' ? '#F0FDF4' : '#FEF2F2',
+                          color: u.status === 'active' ? '#16A34A' : '#DC2626',
+                        }}>
+                          {u.status === 'active' ? 'Активен' : 'Заблокирован'}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {canEdit(u) ? (
+                            <button className="btn-icon" title="Редактировать" onClick={() => openEdit(u)}><Pencil size={14} /></button>
+                          ) : null}
+                          <button className="btn-icon" title="Блок/разблок" onClick={() => toggleStatus(u.id)}><Lock size={14} /></button>
+                          {!isSuperOrAdmin && u.role === 'intern' ? (
+                            <button className="btn-icon" title="Заявка на перевод" onClick={() => sendPromotion(u)}><Send size={14} /></button>
+                          ) : null}
                         </div>
-                      </div>
-                    </td>
-                    <td>{u.position || '-'}</td>
-                    <td>{u.department || '-'}</td>
-                    <td>{ROLE_LABELS[u.role] || u.role}</td>
-                    <td>{u.status === 'active' ? 'Активен' : 'Заблокирован'}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="btn-icon" title="Редактировать" onClick={() => openEdit(u)}><Pencil size={14} /></button>
-                        <button className="btn-icon" title="Блок/разблок" onClick={() => toggleStatus(u.id)}><Lock size={14} /></button>
-                        {isAdminOrSuper && !isSuperAdmin && u.role === 'intern' ? (
-                          <button className="btn-icon" title="Заявка на перевод" onClick={() => sendPromotion(u)}><Send size={14} /></button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -449,8 +572,9 @@ export default function AdminUsers() {
                     <option value="intern">Стажер</option>
                     <option value="employee">Сотрудник</option>
                     <option value="projectmanager">Тимлид</option>
-                    {canAssignAdminRoles ? <option value="department_head">Руководитель отдела</option> : null}
+                    {canAssignAdminRoles ? <option value="department_head">Рук. отдела</option> : null}
                     {canAssignAdminRoles ? <option value="admin">Админ</option> : null}
+                    {isSuperOrAdmin ? <option value="administrator">Администратор</option> : null}
                     {isSuperAdmin ? <option value="superadmin">Суперадмин</option> : null}
                   </select>
                 </div>
@@ -461,14 +585,14 @@ export default function AdminUsers() {
               </div>
               <div className="grid-2" style={{ marginTop: 10 }}>
                 <div className="form-group">
-                  <label className="form-label">Руководитель (Тимлид)</label>
+                  <label className="form-label">Тимлид (руководитель)</label>
                   <select
                     className="form-select"
                     value={form.manager}
                     onChange={(e) => setForm((prev) => ({ ...prev, manager: e.target.value }))}
                     disabled={form.role === 'projectmanager'}
                   >
-                    <option value="">-</option>
+                    <option value="">— не выбрано —</option>
                     {managerOptions.map((m) => (
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
@@ -478,15 +602,32 @@ export default function AdminUsers() {
                   <label className="form-label">Текущий руководитель</label>
                   <input
                     className="form-input"
-                    value={editUser?.managerName || '-'}
+                    value={editUser?.managerName || '—'}
                     disabled
                   />
                 </div>
               </div>
+
+              <div className="form-group" style={{ marginTop: 10 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <MessageSquare size={13} /> Заметки / комментарий
+                </label>
+                <textarea
+                  className="form-input"
+                  style={{ resize: 'vertical', minHeight: 72, fontFamily: 'inherit', fontSize: 13 }}
+                  value={form.notes}
+                  onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Внутренние заметки (видны только администраторам)"
+                  rows={3}
+                />
+              </div>
+
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Отмена</button>
-              <button className="btn btn-primary" onClick={saveUser}>Сохранить</button>
+              <button className="btn btn-primary" onClick={saveUser} disabled={savingUser || !form.name || !form.email}>
+                {savingUser ? 'Сохранение...' : 'Сохранить'}
+              </button>
             </div>
           </div>
         </div>

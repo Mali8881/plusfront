@@ -146,6 +146,7 @@ export default function Dashboard() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [teamMembers, setTeamMembers] = useState([]);
   const [teamLoading, setTeamLoading] = useState(false);
+  const [orgTeam, setOrgTeam] = useState([]);
 
   useEffect(() => {
     const loadNews = async () => {
@@ -161,6 +162,18 @@ export default function Dashboard() {
     };
     loadNews();
   }, []);
+
+  useEffect(() => {
+    if (!canSendFeedback) return;
+    usersAPI.list().then((res) => {
+      const myId = Number(user?.id || 0);
+      const members = safeList(res?.data)
+        .map((m) => normalizeOrgMember(m))
+        .filter((m) => Number(m.id) !== myId)
+        .slice(0, 4);
+      setOrgTeam(members);
+    }).catch(() => {});
+  }, [user?.id]);
 
   useEffect(() => {
     const role = normalizeRole(user?.role);
@@ -254,6 +267,7 @@ export default function Dashboard() {
       </div>
 
       {canSendFeedback && (
+        <>
         <div className="card" style={{ maxWidth: 720 }}>
           <div className="card-body">
             <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>{tr('Обратная связь')}</h3>
@@ -286,32 +300,30 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {orgTeam.length > 0 && (
         <div className="card">
           <div className="card-header">
             <span className="card-title">{tr('Наша команда')}</span>
           </div>
           <div className="card-body">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {[
-                { name: 'Елена М.', role: 'HR-менеджер', color: '#F3D0D7' },
-                { name: 'Иван С.', role: 'Рук. продаж', color: '#D0E8F3' },
-                { name: 'Мария К.', role: 'Суперадмин', color: '#D0F3D7' },
-                { name: 'Султан М.', role: 'Тимлид маркетинга', color: '#F3F0D0' },
-              ].map((p) => (
-                <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--gray-50)', borderRadius: 'var(--radius)' }}>
-                  <div className="avatar" style={{ width: 36, height: 36, background: p.color, fontSize: 13 }}>
-                    {p.name.split(' ').map((x) => x[0]).join('')}
+              {orgTeam.map((p) => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--gray-50)', borderRadius: 'var(--radius)' }}>
+                  <div className="avatar" style={{ width: 36, height: 36, background: 'var(--primary-light)', fontSize: 13 }}>
+                    {p.name.split(' ').map((x) => x[0]).join('').slice(0, 2)}
                   </div>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>{tr(p.role)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>{tr(p.position)}</div>
                   </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
-      </div>
+        )}
+        </>
+      )}
 
       {normalizeRole(user?.role) === 'projectmanager' && (
         <div className="card" style={{ marginTop: 20 }}>

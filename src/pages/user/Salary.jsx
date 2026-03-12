@@ -1,33 +1,25 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Check, DollarSign, Pencil, Plus, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usersAPI } from '../../api/auth';
-import { payrollAPI } from '../../api/content';
+import { payrollAPI } from '../../api/payroll';
 import MainLayout from '../../layouts/MainLayout';
 
 const MONTHS_RU = [
-  'январь',
-  'февраль',
-  'март',
-  'апрель',
-  'май',
-  'июнь',
-  'июль',
-  'август',
-  'сентябрь',
-  'октябрь',
-  'ноябрь',
-  'декабрь',
+  'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+  'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
 ];
 
+// Значения соответствуют backend PayType: hourly | minute | fixed_salary
 const EMPLOYMENT_OPTIONS = [
-  { value: 'fixed', label: 'Оклад' },
-  { value: 'daily', label: 'Дневная' },
+  { value: 'fixed_salary', label: 'Оклад' },
   { value: 'hourly', label: 'Почасовая' },
+  { value: 'minute', label: 'Поминутная' },
 ];
 
 const PERIOD_STATUS_META = {
   draft: { label: 'Рассчитано', className: 'badge-yellow' },
+  calculated: { label: 'Рассчитано', className: 'badge-yellow' },
   locked: { label: 'Закрыто', className: 'badge-blue' },
   paid: { label: 'Выплачено', className: 'badge-green' },
 };
@@ -74,14 +66,8 @@ function MetricCard({ title, value, hint, borderColor = 'var(--gray-200)' }) {
 }
 
 function MySalaryView({ entry, loading, error, selectedYear, selectedMonth }) {
-  if (loading) {
-    return <div className="card"><div className="card-body">Загрузка...</div></div>;
-  }
-
-  if (error) {
-    return <div className="card"><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div>;
-  }
-
+  if (loading) return <div className="card"><div className="card-body">Загрузка...</div></div>;
+  if (error) return <div className="card"><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div>;
   if (!entry) {
     return (
       <div className="card">
@@ -96,32 +82,11 @@ function MySalaryView({ entry, loading, error, selectedYear, selectedMonth }) {
   return (
     <>
       <div className="stats-grid" style={{ marginBottom: 14 }}>
-        <MetricCard
-          title="К выплате"
-          value={amountFmt(entry.total_amount)}
-          hint={`Период: ${monthLabel(selectedYear, selectedMonth, true)}`}
-          borderColor="#16A34A"
-        />
-        <MetricCard
-          title="Начисление"
-          value={amountFmt(entry.salary_amount)}
-          hint="Базовая сумма без вычета авансов"
-          borderColor="#2563EB"
-        />
-        <MetricCard
-          title="Авансы"
-          value={amountFmt(entry.advances)}
-          hint="Учитываются при итоговой выплате"
-          borderColor="#D97706"
-        />
-        <MetricCard
-          title="Норма / Отработано"
-          value={`${entry.worked_days}/${entry.planned_days} дн`}
-          hint={`Статус периода: ${(PERIOD_STATUS_META[entry.period?.status]?.label || entry.period?.status || '-')}`}
-          borderColor="#7C3AED"
-        />
+        <MetricCard title="К выплате" value={amountFmt(entry.total_amount)} hint={`Период: ${monthLabel(selectedYear, selectedMonth, true)}`} borderColor="#16A34A" />
+        <MetricCard title="Начисление" value={amountFmt(entry.salary_amount)} hint="Базовая сумма без вычета авансов" borderColor="#2563EB" />
+        <MetricCard title="Авансы" value={amountFmt(entry.advances)} hint="Учитываются при итоговой выплате" borderColor="#D97706" />
+        <MetricCard title="Норма / Отработано" value={`${entry.worked_days}/${entry.planned_days} дн`} hint={`Статус: ${PERIOD_STATUS_META[entry.period?.status]?.label || entry.period?.status || '-'}`} borderColor="#7C3AED" />
       </div>
-
       <div className="card">
         <div className="card-header"><span className="card-title">Информация о расчете</span></div>
         <div className="card-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -129,7 +94,7 @@ function MySalaryView({ entry, loading, error, selectedYear, selectedMonth }) {
             <div style={{ marginBottom: 6 }}>Сотрудник: <b>{entry.username}</b></div>
             <div style={{ marginBottom: 6 }}>Начисление: <b>{amountFmt(entry.salary_amount)}</b></div>
             <div style={{ marginBottom: 6 }}>К выплате: <b>{amountFmt(entry.total_amount)}</b></div>
-            <div style={{ marginBottom: 6 }}>Статус записи: <b>{PERIOD_STATUS_META[entry.period?.status]?.label || '-'}</b></div>
+            <div style={{ marginBottom: 6 }}>Статус: <b>{PERIOD_STATUS_META[entry.period?.status]?.label || '-'}</b></div>
           </div>
           <div>
             <div style={{ marginBottom: 6 }}>Период: <b>{monthLabel(selectedYear, selectedMonth, true)}</b></div>
@@ -143,121 +108,59 @@ function MySalaryView({ entry, loading, error, selectedYear, selectedMonth }) {
   );
 }
 
-function SalaryProfileModal({
-  opened,
-  mode,
-  users,
-  profile,
-  selectedUserId,
-  onClose,
-  onSubmit,
-}) {
-  const [form, setForm] = useState({
-    user: '',
-    base_salary: '',
-    employment_type: 'fixed',
-    currency: 'KGS',
-    is_active: true,
-  });
+function SalaryProfileModal({ opened, mode, users, profile, selectedUserId, onClose, onSubmit }) {
+  const [form, setForm] = useState({ user: '', rate: '', pay_type: 'hourly' });
 
   useEffect(() => {
     if (!opened) return;
     if (mode === 'edit' && profile) {
-      setForm({
-        user: String(profile.user),
-        base_salary: String(profile.base_salary || ''),
-        employment_type: profile.employment_type || 'fixed',
-        currency: profile.currency || 'KGS',
-        is_active: profile.is_active !== false,
-      });
+      const rate = profile.hourly_rate || profile.fixed_salary || profile.minute_rate || 0;
+      setForm({ user: String(profile.user), rate: String(rate), pay_type: profile.pay_type || 'hourly' });
       return;
     }
-    setForm({
-      user: selectedUserId ? String(selectedUserId) : '',
-      base_salary: '',
-      employment_type: 'fixed',
-      currency: 'KGS',
-      is_active: true,
-    });
+    setForm({ user: selectedUserId ? String(selectedUserId) : '', rate: '', pay_type: 'hourly' });
   }, [opened, mode, profile, selectedUserId]);
 
   if (!opened) return null;
 
   const submit = () => {
+    const pay_type = form.pay_type;
+    const rateVal = Number(form.rate) || 0;
     const payload = {
-      user: Number(form.user),
-      base_salary: Number(form.base_salary) || 0,
-      employment_type: form.employment_type,
-      currency: form.currency || 'KGS',
-      is_active: !!form.is_active,
+      user_id: Number(form.user),
+      pay_type,
+      ...(pay_type === 'hourly' && { hourly_rate: rateVal }),
+      ...(pay_type === 'minute' && { minute_rate: rateVal }),
+      ...(pay_type === 'fixed_salary' && { fixed_salary: rateVal }),
     };
     onSubmit(payload);
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
         <div className="modal-header">
           <div className="modal-title">{mode === 'create' ? 'Добавить ставку' : 'Изменить ставку'}</div>
           <button className="btn-icon" type="button" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="modal-body">
-          <div className="form-group" style={{ marginBottom: 12 }}>
+          <div className="form-group">
             <label className="form-label">Сотрудник</label>
-            <select
-              className="form-select"
-              disabled={mode === 'edit'}
-              value={form.user}
-              onChange={(e) => setForm((prev) => ({ ...prev, user: e.target.value }))}
-            >
+            <select className="form-select" disabled={mode === 'edit'} value={form.user} onChange={(e) => setForm((p) => ({ ...p, user: e.target.value }))}>
               <option value="">Выберите сотрудника</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>{u.full_name || u.username || `#${u.id}`}</option>
-              ))}
+              {users.map((u) => <option key={u.id} value={u.id}>{u.full_name || u.username || `#${u.id}`}</option>)}
             </select>
           </div>
-
-          <div className="form-group" style={{ marginBottom: 12 }}>
+          <div className="form-group">
             <label className="form-label">Модель оплаты</label>
-            <select
-              className="form-select"
-              value={form.employment_type}
-              onChange={(e) => setForm((prev) => ({ ...prev, employment_type: e.target.value }))}
-            >
-              {EMPLOYMENT_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
+            <select className="form-select" value={form.pay_type} onChange={(e) => setForm((p) => ({ ...p, pay_type: e.target.value }))}>
+              {EMPLOYMENT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </div>
-
-          <div className="form-group" style={{ marginBottom: 12 }}>
-            <label className="form-label">Ставка</label>
-            <input
-              className="form-input"
-              type="number"
-              min="0"
-              value={form.base_salary}
-              onChange={(e) => setForm((prev) => ({ ...prev, base_salary: e.target.value }))}
-            />
+          <div className="form-group">
+            <label className="form-label">Ставка (KGS)</label>
+            <input className="form-input" type="number" min="0" value={form.rate} onChange={(e) => setForm((p) => ({ ...p, rate: e.target.value }))} />
           </div>
-
-          <div className="form-group" style={{ marginBottom: 12 }}>
-            <label className="form-label">Валюта</label>
-            <input
-              className="form-input"
-              value={form.currency}
-              onChange={(e) => setForm((prev) => ({ ...prev, currency: e.target.value }))}
-            />
-          </div>
-
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              type="checkbox"
-              checked={form.is_active}
-              onChange={(e) => setForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-            />
-            Активный профиль
-          </label>
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" type="button" onClick={onClose}>Отмена</button>
@@ -270,20 +173,7 @@ function SalaryProfileModal({
   );
 }
 
-function TeamSalaryView({
-  year,
-  month,
-  rows,
-  profiles,
-  users,
-  loading,
-  error,
-  onGenerate,
-  onCreateProfile,
-  onUpdateProfile,
-  onSetPeriodStatus,
-  canChangeStatus,
-}) {
+function TeamSalaryView({ year, month, rows, profiles, users, loading, error, onGenerate, onCreateProfile, onUpdateProfile, onSetPeriodStatus, canChangeStatus }) {
   const [modalOpened, setModalOpened] = useState(false);
   const [modalMode, setModalMode] = useState('create');
   const [profileForEdit, setProfileForEdit] = useState(null);
@@ -304,31 +194,23 @@ function TeamSalaryView({
   const usersMap = useMemo(() => {
     const map = new Map();
     users.forEach((item) => map.set(Number(item.id), item));
-    rows.forEach((item) => {
-      const id = Number(item.user);
-      if (!map.has(id)) map.set(id, { id, full_name: item.username, username: item.username });
-    });
-    profiles.forEach((item) => {
-      const id = Number(item.user);
-      if (!map.has(id)) map.set(id, { id, full_name: item.username, username: item.username });
-    });
+    rows.forEach((item) => { const id = Number(item.user); if (!map.has(id)) map.set(id, { id, full_name: item.username, username: item.username }); });
+    profiles.forEach((item) => { const id = Number(item.user); if (!map.has(id)) map.set(id, { id, full_name: item.username, username: item.username }); });
     return map;
   }, [users, rows, profiles]);
 
   const salaryRows = useMemo(() => {
     const ids = new Set([...rowMap.keys(), ...profileMap.keys()]);
-    return [...ids]
-      .map((id) => {
-        const payroll = rowMap.get(id) || null;
-        const profile = profileMap.get(id) || null;
-        const user = usersMap.get(id) || { id, full_name: `#${id}` };
-        return { id, payroll, profile, user };
-      })
-      .sort((a, b) => {
-        const an = (a.user.full_name || a.user.username || '').toLowerCase();
-        const bn = (b.user.full_name || b.user.username || '').toLowerCase();
-        return an.localeCompare(bn, 'ru');
-      });
+    return [...ids].map((id) => ({
+      id,
+      payroll: rowMap.get(id) || null,
+      profile: profileMap.get(id) || null,
+      user: usersMap.get(id) || { id, full_name: `#${id}` },
+    })).sort((a, b) => {
+      const an = (a.user.full_name || a.user.username || '').toLowerCase();
+      const bn = (b.user.full_name || b.user.username || '').toLowerCase();
+      return an.localeCompare(bn, 'ru');
+    });
   }, [rowMap, profileMap, usersMap]);
 
   const period = rows[0]?.period || null;
@@ -336,23 +218,10 @@ function TeamSalaryView({
   const paidCount = rows.filter((row) => row.period?.status === 'paid').length;
   const pendingCount = rows.length - paidCount;
 
-  const usersWithoutProfile = useMemo(() => {
-    return [...usersMap.values()].filter((u) => !profileMap.has(Number(u.id)));
-  }, [usersMap, profileMap]);
+  const usersWithoutProfile = useMemo(() => [...usersMap.values()].filter((u) => !profileMap.has(Number(u.id))), [usersMap, profileMap]);
 
-  const openCreateModal = () => {
-    setModalMode('create');
-    setProfileForEdit(null);
-    setSelectedUserId(usersWithoutProfile[0]?.id || null);
-    setModalOpened(true);
-  };
-
-  const openEditModal = (profile) => {
-    setModalMode('edit');
-    setProfileForEdit(profile);
-    setSelectedUserId(profile.user);
-    setModalOpened(true);
-  };
+  const openCreateModal = () => { setModalMode('create'); setProfileForEdit(null); setSelectedUserId(usersWithoutProfile[0]?.id || null); setModalOpened(true); };
+  const openEditModal = (profile) => { setModalMode('edit'); setProfileForEdit(profile); setSelectedUserId(profile.user); setModalOpened(true); };
 
   const submitModal = async (payload) => {
     if (modalMode === 'edit' && profileForEdit) {
@@ -370,37 +239,13 @@ function TeamSalaryView({
 
   return (
     <>
-      {error ? (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div>
-        </div>
-      ) : null}
+      {error && <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div>}
 
       <div className="stats-grid" style={{ marginBottom: 14 }}>
-        <MetricCard
-          title="Фонд оплаты"
-          value={amountFmt(totalFund)}
-          hint={`Период: ${monthLabel(year, month, true)}`}
-          borderColor="#16A34A"
-        />
-        <MetricCard
-          title="Записей"
-          value={String(rows.length)}
-          hint="Сотрудников в расчете"
-          borderColor="#2563EB"
-        />
-        <MetricCard
-          title="Выплачено"
-          value={String(paidCount)}
-          hint="Статус paid"
-          borderColor="#16A34A"
-        />
-        <MetricCard
-          title="Ожидает выплаты"
-          value={String(pendingCount)}
-          hint={`Статус периода: ${PERIOD_STATUS_META[period?.status]?.label || '-'}`}
-          borderColor="#DC2626"
-        />
+        <MetricCard title="Фонд оплаты" value={amountFmt(totalFund)} hint={`Период: ${monthLabel(year, month, true)}`} borderColor="#16A34A" />
+        <MetricCard title="Записей" value={String(rows.length)} hint="Сотрудников в расчете" borderColor="#2563EB" />
+        <MetricCard title="Выплачено" value={String(paidCount)} hint="Статус paid" borderColor="#16A34A" />
+        <MetricCard title="Ожидает выплаты" value={String(pendingCount)} hint={`Статус периода: ${PERIOD_STATUS_META[period?.status]?.label || '-'}`} borderColor="#DC2626" />
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
@@ -415,14 +260,13 @@ function TeamSalaryView({
               <span className="badge badge-red">Ожидает: {pendingCount}</span>
             </div>
           </div>
-
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {canChangeStatus && period?.id ? (
+            {canChangeStatus && period?.id && (
               <>
-                <button className="btn btn-secondary" type="button" onClick={() => setPeriodStatus('draft')}>В статус Рассчитано</button>
+                <button className="btn btn-secondary" type="button" onClick={() => setPeriodStatus('calculated')}>В статус Рассчитано</button>
                 <button className="btn btn-secondary" type="button" onClick={() => setPeriodStatus('paid')}>Отметить выплаченным</button>
               </>
-            ) : null}
+            )}
             <button className="btn btn-primary" type="button" onClick={onGenerate}>
               <RefreshCw size={14} /> Пересчитать месяц
             </button>
@@ -433,27 +277,19 @@ function TeamSalaryView({
       <div className="card">
         <div className="card-header">
           <span className="card-title">Единая таблица зарплат и ставок</span>
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={openCreateModal}
-            disabled={usersWithoutProfile.length === 0}
-            title={usersWithoutProfile.length === 0 ? 'У всех сотрудников уже есть ставка' : 'Добавить ставку'}
-          >
+          <button className="btn btn-primary" type="button" onClick={openCreateModal} disabled={usersWithoutProfile.length === 0} title={usersWithoutProfile.length === 0 ? 'У всех сотрудников уже есть ставка' : 'Добавить ставку'}>
             <Plus size={14} /> Добавить ставку
           </button>
         </div>
-
         <div className="table-wrap">
-          <table className="table payroll-table">
+          <table className="table">
             <thead>
               <tr>
                 <th>Сотрудник</th>
                 <th>Месяц</th>
-                <th>Дни</th>
+                <th>Часы</th>
                 <th>Начисление</th>
-                <th>Авансы</th>
-                <th>К выплате</th>
+                <th>Премия</th>
                 <th>Статус</th>
                 <th>Модель</th>
                 <th>Ставка</th>
@@ -461,47 +297,31 @@ function TeamSalaryView({
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr><td colSpan={10}>Загрузка...</td></tr>
-              ) : null}
-
+              {loading && <tr><td colSpan={9}>Загрузка...</td></tr>}
               {!loading && salaryRows.map(({ id, user, payroll, profile }) => (
                 <tr key={id}>
                   <td style={{ fontWeight: 600 }}>{user.full_name || user.username || `#${id}`}</td>
-                  <td>{monthLabel(year, month, true)}</td>
-                  <td>{payroll ? `${payroll.worked_days}/${payroll.planned_days} дн` : '-'}</td>
-                  <td>{payroll ? amountFmt(payroll.salary_amount) : '-'}</td>
-                  <td>{payroll ? amountFmt(payroll.advances) : '-'}</td>
-                  <td style={{ fontWeight: 700 }}>{payroll ? amountFmt(payroll.total_amount) : '-'}</td>
-                  <td>{statusBadge(payroll?.period?.status || period?.status)}</td>
-                  <td>{EMPLOYMENT_OPTIONS.find((x) => x.value === profile?.employment_type)?.label || '-'}</td>
-                  <td>{profile ? `${amountFmt(profile.base_salary)} (${profile.currency || 'KGS'})` : '-'}</td>
+                  <td>{payroll ? monthLabel(year, month, true) : '—'}</td>
+                  <td>{payroll ? `${payroll.total_hours ?? 0} ч` : '—'}</td>
+                  <td>{payroll ? amountFmt(payroll.total_salary ?? payroll.salary_amount) : '0 KGS'}</td>
+                  <td>{payroll ? amountFmt(payroll.bonus) : '0 KGS'}</td>
+                  <td>{statusBadge(payroll?.status || period?.status)}</td>
+                  <td>{EMPLOYMENT_OPTIONS.find((x) => x.value === profile?.pay_type)?.label || '—'}</td>
+                  <td>{profile ? `${Number(profile.hourly_rate || profile.fixed_salary || profile.minute_rate || 0).toLocaleString('ru-RU')} KGS` : '—'}</td>
                   <td>
                     {profile ? (
                       <button className="btn btn-secondary btn-sm" type="button" onClick={() => openEditModal(profile)}>
                         <Pencil size={13} /> Изменить
                       </button>
                     ) : (
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        type="button"
-                        onClick={() => {
-                          setModalMode('create');
-                          setProfileForEdit(null);
-                          setSelectedUserId(id);
-                          setModalOpened(true);
-                        }}
-                      >
+                      <button className="btn btn-secondary btn-sm" type="button" onClick={() => { setModalMode('create'); setProfileForEdit(null); setSelectedUserId(id); setModalOpened(true); }}>
                         <Plus size={13} /> Добавить
                       </button>
                     )}
                   </td>
                 </tr>
               ))}
-
-              {!loading && salaryRows.length === 0 ? (
-                <tr><td colSpan={10}>Данные по зарплатам за этот период отсутствуют.</td></tr>
-              ) : null}
+              {!loading && salaryRows.length === 0 && <tr><td colSpan={9}>Данные по зарплатам за этот период отсутствуют.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -527,11 +347,9 @@ export default function Salary() {
 
   const [view, setView] = useState('my');
   const [selected, setSelected] = useState(todayMeta());
-
   const [myEntry, setMyEntry] = useState(null);
   const [myLoading, setMyLoading] = useState(true);
   const [myError, setMyError] = useState('');
-
   const [teamRows, setTeamRows] = useState([]);
   const [teamProfiles, setTeamProfiles] = useState([]);
   const [teamUsers, setTeamUsers] = useState([]);
@@ -547,14 +365,9 @@ export default function Salary() {
       const res = await payrollAPI.my({ year, month });
       setMyEntry(res.data || null);
     } catch (error) {
-      if (error.response?.status === 404) {
-        setMyEntry(null);
-      } else {
-        setMyError(error.response?.data?.detail || 'Не удалось загрузить мою зарплату.');
-      }
-    } finally {
-      setMyLoading(false);
-    }
+      if (error.response?.status === 404) { setMyEntry(null); }
+      else { setMyError(error.response?.data?.detail || 'Не удалось загрузить мою зарплату.'); }
+    } finally { setMyLoading(false); }
   };
 
   const loadTeam = async (year, month) => {
@@ -567,22 +380,12 @@ export default function Salary() {
         payrollAPI.adminList({ year, month }),
         usersAPI.list().catch(() => ({ data: [] })),
       ]);
-
       setTeamProfiles(Array.isArray(profilesRes.data) ? profilesRes.data : []);
       setTeamRows(Array.isArray(rowsRes.data) ? rowsRes.data : []);
-      const users = Array.isArray(usersRes.data) ? usersRes.data : [];
-      setTeamUsers(
-        users.map((u) => ({
-          id: u.id,
-          username: u.username,
-          full_name: u.full_name || u.username,
-        }))
-      );
+      setTeamUsers((Array.isArray(usersRes.data) ? usersRes.data : []).map((u) => ({ id: u.id, username: u.username, full_name: u.full_name || u.username })));
     } catch (error) {
       setTeamError(error.response?.data?.detail || 'Не удалось загрузить зарплаты сотрудников.');
-    } finally {
-      setTeamLoading(false);
-    }
+    } finally { setTeamLoading(false); }
   };
 
   useEffect(() => {
@@ -590,51 +393,30 @@ export default function Salary() {
     loadTeam(selected.year, selected.month);
   }, [selected.year, selected.month, isAdmin]);
 
-  const refreshBoth = async () => {
-    await Promise.all([
-      loadMy(selected.year, selected.month),
-      loadTeam(selected.year, selected.month),
-    ]);
-  };
+  const refreshBoth = () => Promise.all([loadMy(selected.year, selected.month), loadTeam(selected.year, selected.month)]);
 
   const handleGenerate = async () => {
     setTeamError('');
-    try {
-      await payrollAPI.generate({ year: selected.year, month: selected.month });
-      await refreshBoth();
-    } catch (error) {
-      setTeamError(error.response?.data?.detail || 'Не удалось пересчитать выбранный месяц.');
-    }
+    try { await payrollAPI.generate({ year: selected.year, month: selected.month }); await refreshBoth(); }
+    catch (error) { setTeamError(error.response?.data?.detail || 'Не удалось пересчитать выбранный месяц.'); }
   };
 
   const handleCreateProfile = async (payload) => {
     setTeamError('');
-    try {
-      await payrollAPI.createSalaryProfile(payload);
-      await loadTeam(selected.year, selected.month);
-    } catch (error) {
-      setTeamError(error.response?.data?.detail || 'Не удалось создать ставку.');
-    }
+    try { await payrollAPI.createSalaryProfile(payload); await loadTeam(selected.year, selected.month); }
+    catch (error) { setTeamError(error.response?.data?.detail || 'Не удалось создать ставку.'); }
   };
 
   const handleUpdateProfile = async (profileId, payload) => {
     setTeamError('');
-    try {
-      await payrollAPI.updateSalaryProfile(profileId, payload);
-      await loadTeam(selected.year, selected.month);
-    } catch (error) {
-      setTeamError(error.response?.data?.detail || 'Не удалось обновить ставку.');
-    }
+    try { await payrollAPI.updateSalaryProfile(profileId, payload); await loadTeam(selected.year, selected.month); }
+    catch (error) { setTeamError(error.response?.data?.detail || 'Не удалось обновить ставку.'); }
   };
 
   const handleSetPeriodStatus = async (periodId, status) => {
     setTeamError('');
-    try {
-      await payrollAPI.setPeriodStatus(periodId, { status });
-      await loadTeam(selected.year, selected.month);
-    } catch (error) {
-      setTeamError(error.response?.data?.detail || 'Не удалось изменить статус периода.');
-    }
+    try { await payrollAPI.setPeriodStatus(periodId, { status }); await loadTeam(selected.year, selected.month); }
+    catch (error) { setTeamError(error.response?.data?.detail || 'Не удалось изменить статус периода.'); }
   };
 
   return (
@@ -651,34 +433,17 @@ export default function Salary() {
           className="form-select"
           style={{ width: 220 }}
           value={`${selected.year}-${String(selected.month).padStart(2, '0')}`}
-          onChange={(e) => {
-            const [year, month] = e.target.value.split('-').map(Number);
-            setSelected({ year, month });
-          }}
+          onChange={(e) => { const [year, month] = e.target.value.split('-').map(Number); setSelected({ year, month }); }}
         >
-          {monthOptions.map((opt) => (
-            <option key={opt.key} value={opt.key}>{monthLabel(opt.year, opt.month, true)}</option>
-          ))}
+          {monthOptions.map((opt) => <option key={opt.key} value={opt.key}>{monthLabel(opt.year, opt.month, true)}</option>)}
         </select>
 
-        {isAdmin ? (
+        {isAdmin && (
           <>
-            <button
-              type="button"
-              className={`btn btn-sm ${view === 'my' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setView('my')}
-            >
-              Моя зарплата
-            </button>
-            <button
-              type="button"
-              className={`btn btn-sm ${view === 'team' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setView('team')}
-            >
-              Зарплаты сотрудников
-            </button>
+            <button type="button" className={`btn btn-sm ${view === 'my' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView('my')}>Моя зарплата</button>
+            <button type="button" className={`btn btn-sm ${view === 'team' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView('team')}>Зарплаты сотрудников</button>
           </>
-        ) : null}
+        )}
       </div>
 
       {isAdmin && view === 'team' ? (
@@ -697,13 +462,7 @@ export default function Salary() {
           canChangeStatus={canChangeStatus}
         />
       ) : (
-        <MySalaryView
-          entry={myEntry}
-          loading={myLoading}
-          error={myError}
-          selectedYear={selected.year}
-          selectedMonth={selected.month}
-        />
+        <MySalaryView entry={myEntry} loading={myLoading} error={myError} selectedYear={selected.year} selectedMonth={selected.month} />
       )}
     </MainLayout>
   );

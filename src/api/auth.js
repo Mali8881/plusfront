@@ -42,14 +42,22 @@ export const authAPI = {
     throw lastError;
   },
 
-  getMe: (config) =>
-    api.get('/auth/me/', config),
+  refresh: (refresh) =>
+    api.post('/auth/token/refresh/', { refresh }, { _silent: true }),
 
   logout: () => Promise.resolve({ data: { detail: 'logout handled on client' } }),
 
-  getMe: () => api.get('/v1/accounts/me/profile/'),
+  getMe: () => api.get('/v1/auth/me/'),
 
-  updateMe: (data) => api.patch('/v1/accounts/me/profile/', data),
+  updateMe: (data) => api.patch('/v1/auth/me/', data),
+
+  changePassword: (data) => api.post('/v1/auth/me/password/', data),
+
+  requestPasswordReset: (username_or_email) =>
+    api.post('/v1/accounts/password-reset/request/', { username_or_email }, { skipAuth: true }),
+
+  confirmPasswordReset: (token, new_password) =>
+    api.post('/v1/accounts/password-reset/confirm/', { token, new_password }, { skipAuth: true }),
 };
 
 export const usersAPI = {
@@ -86,9 +94,21 @@ export const departmentsAPI = {
     }
   },
   delete: (id) => api.delete(`/v1/accounts/org/departments/${id}/`),
+  transferUsers: (id, data) => api.post(`/v1/accounts/org/departments/${id}/transfer-users/`, data),
 };
 
 export const subdivisionsAPI = {
+  list: async (params) => {
+    try {
+      return await api.get('/v1/accounts/org/subdivisions/', { params });
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.get('/v1/auth/subdivisions/', { params });
+      }
+      throw err;
+    }
+  },
   create: async (data) => {
     try {
       return await api.post('/v1/accounts/org/subdivisions/', data);
@@ -108,9 +128,41 @@ export const positionsAPI = {
   delete: (id) => api.delete(`/v1/accounts/org/positions/${id}/`),
 };
 
+export const rolesAPI = {
+  list: () => api.get('/v1/accounts/org/roles/'),
+  create: (data) => api.post('/v1/accounts/org/roles/', data),
+  update: (id, data) => api.patch(`/v1/accounts/org/roles/${id}/`, data),
+  delete: (id) => api.delete(`/v1/accounts/org/roles/${id}/`),
+};
+
 export const promotionRequestsAPI = {
   list: (params) => api.get('/v1/accounts/promotion-requests/', { params }),
   create: (data) => api.post('/v1/accounts/promotion-requests/', data),
   approve: (id, data) => api.post(`/v1/accounts/promotion-requests/${id}/approve/`, data),
   reject: (id, data) => api.post(`/v1/accounts/promotion-requests/${id}/reject/`, data),
+};
+
+export const securityAPI = {
+  unlockUsers: async (data = { all: true }) => {
+    try {
+      return await api.post('/v1/security/unlock-users/', data);
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.post('/security/unlock-users/', data);
+      }
+      throw err;
+    }
+  },
+  forceLogoutAll: async () => {
+    try {
+      return await api.post('/v1/security/force-logout/', {});
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.post('/security/force-logout/', {});
+      }
+      throw err;
+    }
+  },
 };

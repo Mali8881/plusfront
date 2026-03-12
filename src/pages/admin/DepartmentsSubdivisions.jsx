@@ -28,11 +28,13 @@ export default function AdminDepartmentsSubdivisions() {
   const [creatingDepartment, setCreatingDepartment] = useState(false);
   const [creatingSubdivision, setCreatingSubdivision] = useState(false);
   const [newDepartmentName, setNewDepartmentName] = useState('');
+  const [newDepartmentComment, setNewDepartmentComment] = useState('');
   const [newSubdivisionName, setNewSubdivisionName] = useState('');
   const [newSubdivisionDepartmentId, setNewSubdivisionDepartmentId] = useState('');
 
   const [editingDepartmentId, setEditingDepartmentId] = useState(null);
   const [editingDepartmentName, setEditingDepartmentName] = useState('');
+  const [editingDepartmentComment, setEditingDepartmentComment] = useState('');
   const [savingDepartmentId, setSavingDepartmentId] = useState(null);
   const [deletingDepartmentId, setDeletingDepartmentId] = useState(null);
 
@@ -105,8 +107,9 @@ export default function AdminDepartmentsSubdivisions() {
     setCreatingDepartment(true);
     clearOrgMessages();
     try {
-      await departmentsAPI.create({ name, is_active: true });
+      await departmentsAPI.create({ name, comment: newDepartmentComment.trim(), is_active: true });
       setNewDepartmentName('');
+      setNewDepartmentComment('');
       setOrgSuccess('Отдел создан.');
       await loadAll();
     } catch (e) {
@@ -123,7 +126,7 @@ export default function AdminDepartmentsSubdivisions() {
     setCreatingSubdivision(true);
     clearOrgMessages();
     try {
-      await subdivisionsAPI.create({ name, department_id: departmentId, is_active: true });
+      await subdivisionsAPI.create({ name, department: departmentId, is_active: true });
       setNewSubdivisionName('');
       setOrgSuccess('Подотдел создан.');
       await loadAll();
@@ -137,11 +140,13 @@ export default function AdminDepartmentsSubdivisions() {
   const startEditDepartment = (department) => {
     setEditingDepartmentId(department.id);
     setEditingDepartmentName(department.name || '');
+    setEditingDepartmentComment(department.comment || '');
   };
 
   const cancelEditDepartment = () => {
     setEditingDepartmentId(null);
     setEditingDepartmentName('');
+    setEditingDepartmentComment('');
   };
 
   const saveDepartment = async (departmentId) => {
@@ -150,7 +155,7 @@ export default function AdminDepartmentsSubdivisions() {
     setSavingDepartmentId(departmentId);
     clearOrgMessages();
     try {
-      await departmentsAPI.update(departmentId, { name });
+      await departmentsAPI.update(departmentId, { name, comment: editingDepartmentComment.trim() });
       setOrgSuccess('Отдел обновлен.');
       cancelEditDepartment();
       await loadAll();
@@ -234,7 +239,7 @@ export default function AdminDepartmentsSubdivisions() {
     try {
       await subdivisionsAPI.update(subdivisionId, {
         name,
-        department_id: departmentId,
+        department: departmentId,
       });
       setOrgSuccess('Подотдел обновлен.');
       cancelEditSubdivision();
@@ -283,11 +288,14 @@ export default function AdminDepartmentsSubdivisions() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Создать отдел</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input className="form-input" placeholder="Название отдела" value={newDepartmentName} onChange={(e) => setNewDepartmentName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createDepartment()} />
-                  <button className="btn btn-primary" type="button" onClick={createDepartment} disabled={creatingDepartment || !newDepartmentName.trim()}>
-                    {creatingDepartment ? 'Создаем...' : 'Создать'}
-                  </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input className="form-input" placeholder="Название отдела" value={newDepartmentName} onChange={(e) => setNewDepartmentName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createDepartment()} />
+                    <button className="btn btn-primary" type="button" onClick={createDepartment} disabled={creatingDepartment || !newDepartmentName.trim()}>
+                      {creatingDepartment ? 'Создаем...' : 'Создать'}
+                    </button>
+                  </div>
+                  <textarea className="form-input" placeholder="Описание / комментарий (необязательно)" value={newDepartmentComment} onChange={(e) => setNewDepartmentComment(e.target.value)} rows={2} style={{ resize: 'vertical', fontSize: 13 }} />
                 </div>
               </div>
 
@@ -321,9 +329,21 @@ export default function AdminDepartmentsSubdivisions() {
                   return (
                     <div key={department.id} className="card" style={{ border: '1px solid var(--gray-200)' }}>
                       <div className="card-body" style={{ padding: 12 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                          {!isEditingDepartment ? <div style={{ fontWeight: 700 }}>{department.name}</div> : <input className="form-input" value={editingDepartmentName} onChange={(e) => setEditingDepartmentName(e.target.value)} />}
-                          <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            {!isEditingDepartment ? (
+                              <>
+                                <div style={{ fontWeight: 700 }}>{department.name}</div>
+                                {department.comment && <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4 }}>{department.comment}</div>}
+                              </>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <input className="form-input" value={editingDepartmentName} onChange={(e) => setEditingDepartmentName(e.target.value)} />
+                                <textarea className="form-input" placeholder="Описание / комментарий" value={editingDepartmentComment} onChange={(e) => setEditingDepartmentComment(e.target.value)} rows={2} style={{ resize: 'vertical', fontSize: 13 }} />
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                             {!isEditingDepartment ? (
                               <button className="btn btn-secondary btn-sm" type="button" onClick={() => startEditDepartment(department)}>Редактировать</button>
                             ) : (

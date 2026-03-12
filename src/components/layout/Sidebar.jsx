@@ -23,6 +23,7 @@ import {
 const NAV_INTERN = [
   { label: 'Главная', icon: Home, path: '/dashboard' },
   { label: 'Онбординг', icon: GraduationCap, path: '/onboarding' },
+  { label: 'Мои задачи', icon: CheckSquare, path: '/tasks' },
 ];
 
 const NAV_EMPLOYEE = [
@@ -40,7 +41,6 @@ const NAV_PM = [
   { label: 'Задачи команды', icon: CheckSquare, path: '/tasks' },
   { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
   { label: 'Онбординг / Отчёты', icon: GraduationCap, path: '/admin/onboarding' },
-  { label: 'Зарплата', icon: Wallet, path: '/salary' },
   { label: 'Компания', icon: Users, path: '/company' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
   { label: 'График работы', icon: Calendar, path: '/schedule' },
@@ -54,10 +54,12 @@ const NAV_DEPARTMENT_HEAD = [
   { label: 'Компания', icon: Users, path: '/company' },
   { label: 'График работы', icon: Calendar, path: '/schedule' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
-  { label: 'Зарплата', icon: Wallet, path: '/salary' },
   { section: 'УПРАВЛЕНИЕ' },
   { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
+  { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
+  { label: 'Онбординг / Отчёты', icon: GraduationCap, path: '/admin/onboarding' },
+  { label: 'Контент', icon: FileText, path: '/admin/content' },
   { label: 'Отделы и подотделы', icon: LayoutGrid, path: '/admin/departments-subdivisions' },
   { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
   { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
@@ -75,8 +77,8 @@ const NAV_ADMIN = [
   { section: 'УПРАВЛЕНИЕ' },
   { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
-  { label: 'Роли и права', icon: Shield, path: '/admin/roles' },
   { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
+  { label: 'Онбординг', icon: GraduationCap, path: '/admin/onboarding' },
   { label: 'Отделы и подотделы', icon: LayoutGrid, path: '/admin/departments-subdivisions' },
   { label: 'Контент', icon: FileText, path: '/admin/content' },
   { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
@@ -94,6 +96,7 @@ const NAV_SUPERADMIN = [
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
   { label: 'Роли и права', icon: Shield, path: '/admin/roles' },
   { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
+  { label: 'Онбординг', icon: GraduationCap, path: '/admin/onboarding' },
   { label: 'Отделы и подотделы', icon: LayoutGrid, path: '/admin/departments-subdivisions' },
   { label: 'Зарплаты', icon: Wallet, path: '/salary' },
   { label: 'Контент', icon: FileText, path: '/admin/content' },
@@ -105,13 +108,31 @@ const NAV_SUPERADMIN = [
   { label: 'Интерфейс', icon: LayoutGrid, path: '/admin/interface' },
 ];
 
+const NAV_ADMINISTRATOR = [
+  { section: 'МОИ РАЗДЕЛЫ' },
+  { label: 'Главная', icon: Home, path: '/dashboard' },
+  { label: 'Компания', icon: Users, path: '/company' },
+  { label: 'График работы', icon: Calendar, path: '/schedule' },
+  { section: 'УПРАВЛЕНИЕ' },
+  { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
+  { label: 'Пользователи', icon: Users, path: '/admin/users' },
+  { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
+  { label: 'Онбординг', icon: GraduationCap, path: '/admin/onboarding' },
+  { label: 'Отделы и подотделы', icon: LayoutGrid, path: '/admin/departments-subdivisions' },
+  { label: 'Зарплаты', icon: Wallet, path: '/salary' },
+  { label: 'Контент', icon: FileText, path: '/admin/content' },
+  { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
+  { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
+  { label: 'Обратная связь', icon: MessageSquare, path: '/admin/feedback' },
+];
+
 const NAV_MAP = {
   intern: NAV_INTERN,
   employee: NAV_EMPLOYEE,
   projectmanager: NAV_PM,
   department_head: NAV_DEPARTMENT_HEAD,
   admin: NAV_ADMIN,
-  administrator: NAV_ADMIN,
+  administrator: NAV_ADMINISTRATOR,
   superadmin: NAV_SUPERADMIN,
 };
 
@@ -154,6 +175,7 @@ export default function Sidebar() {
       'Стажеры': 'sidebar.interns',
       'Отделы и подотделы': 'sidebar.departmentsSubdivisions',
       'Контент': 'sidebar.content',
+      'Онбординг': 'sidebar.onboarding',
       'Онбординг / Отчёты': 'sidebar.onboarding',
       'График работы сотрудников': 'sidebar.workSchedules',
       'Отметки сотрудников': 'sidebar.attendanceMarks',

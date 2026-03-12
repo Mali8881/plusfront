@@ -12,6 +12,26 @@ import {
   toggleOfficeNetwork,
 } from '../../utils/officeNetwork';
 
+const SECURITY_SETTINGS_KEY = 'vpluse_security_settings_v1';
+const DEFAULT_SETTINGS = {
+  sessionTimeout: '60',
+  maxLoginAttempts: '5',
+  passwordMinLength: '8',
+  requireUppercase: true,
+  requireNumbers: true,
+  twoFactor: false,
+};
+
+function readSecuritySettings() {
+  try {
+    const raw = localStorage.getItem(SECURITY_SETTINGS_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
 const AUDIT_LOG = [
   { id: 1, action: 'Создан пользователь', actor: 'Мария К.', target: 'Иванов Иван', date: '20 фев. 2026, 14:32' },
   { id: 2, action: 'Изменена роль', actor: 'Мария К.', target: 'Алексей П. -> Администратор', date: '19 фев. 2026, 11:05' },
@@ -21,14 +41,7 @@ const AUDIT_LOG = [
 ];
 
 export default function AdminSystem() {
-  const [settings, setSettings] = useState({
-    sessionTimeout: '60',
-    maxLoginAttempts: '5',
-    passwordMinLength: '8',
-    requireUppercase: true,
-    requireNumbers: true,
-    twoFactor: false,
-  });
+  const [settings, setSettings] = useState(readSecuritySettings);
   const [saved, setSaved] = useState(false);
   const [networks, setNetworks] = useState(getOfficeNetworks);
   const [netForm, setNetForm] = useState({ name: '', cidr: '', active: true });
@@ -39,6 +52,7 @@ export default function AdminSystem() {
   const [securityError, setSecurityError] = useState('');
 
   const handleSave = () => {
+    localStorage.setItem(SECURITY_SETTINGS_KEY, JSON.stringify(settings));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -155,7 +169,7 @@ export default function AdminSystem() {
             ))}
 
             <button className="btn btn-primary" onClick={handleSave} style={{ marginTop: 4 }}>
-              {saved ? '? Сохранено' : 'Сохранить настройки'}
+              {saved ? '✓ Сохранено' : 'Сохранить настройки'}
             </button>
           </div>
         </div>

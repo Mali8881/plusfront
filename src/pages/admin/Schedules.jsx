@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import { useAuth } from '../../context/AuthContext';
+import { usersAPI } from '../../api/auth';
 import {
   createScheduleRequest,
   decideScheduleRequest,
@@ -196,12 +197,13 @@ function getUserDaySlot(daysPlan = [], dayOfWeek) {
 }
 
 export default function AdminSchedules() {
-  const { user, mockUsers } = useAuth();
-  const canReview = user?.role === 'admin' || user?.role === 'superadmin';
+  const { user } = useAuth();
+  const canReview = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'administrator' || user?.role === 'department_head';
   const isAdminOrSuper = canReview;
 
   const [tab, setTab] = useState('apps');
   const [refreshToken, setRefreshToken] = useState(0);
+  const [apiUsers, setApiUsers] = useState([]);
 
   const [searchWeekly, setSearchWeekly] = useState('');
   const [searchUsers, setSearchUsers] = useState('');
@@ -213,13 +215,24 @@ export default function AdminSchedules() {
   const [editorPlan, setEditorPlan] = useState(defaultEditorPlan);
   const [editorMessage, setEditorMessage] = useState('');
 
+  useEffect(() => {
+    usersAPI.list().then((res) => {
+      const list = Array.isArray(res?.data) ? res.data : [];
+      setApiUsers(list.map((u) => ({
+        id: u.id,
+        name: u.full_name || u.username || String(u.id),
+        role: u.role || 'employee',
+      })));
+    }).catch(() => {});
+  }, []);
+
   const forceRefresh = () => setRefreshToken((v) => v + 1);
 
   const requests = useMemo(() => getScheduleRequests(), [refreshToken]);
   const pendingRequests = requests.filter((r) => r.status === 'pending');
   const approvedRequests = requests.filter((r) => r.status === 'approved');
 
-  const allUsers = useMemo(() => getActiveUsers(mockUsers || []), [mockUsers]);
+  const allUsers = useMemo(() => getActiveUsers(apiUsers), [apiUsers]);
 
   const latestApprovedByUserId = useMemo(() => {
     const map = new Map();

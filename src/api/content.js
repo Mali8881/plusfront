@@ -2,32 +2,42 @@ import api from './axios';
 import { getStoredLocale } from '../context/LocaleContext';
 
 export const newsAPI = {
+  // list uses compat layer (GET only) — works fine for reading
   list: () => api.get('/core/news/'),
-  create: (data) => api.post('/core/news/', data),
-  update: (id, data) => api.patch(`/core/news/${id}/`, data),
-  delete: (id) => api.delete(`/core/news/${id}/`),
+  // admin CRUD uses the real v1 content endpoint
+  create: (data) => api.post('/v1/content/news/', data),
+  update: (id, data) => api.patch(`/v1/content/news/${id}/`, data),
+  delete: (id) => api.delete(`/v1/content/news/${id}/`),
 };
 
 export const regulationsAPI = {
+  // list uses compat layer (GET only) — works fine for user reading
   list: (params) => api.get('/content/regulations/', { params }),
-  create: (data) => api.post('/content/regulations/', data),
-  update: (id, data) => api.patch(`/content/regulations/${id}/`, data),
-  delete: (id) => api.delete(`/content/regulations/${id}/`),
+  detail: (id) => api.get(`/v1/regulations/${id}/`),
+  // admin CRUD uses the real v1 regulations admin endpoint
+  create: (data) => api.post('/v1/regulations/admin/', data),
+  update: (id, data) => api.patch(`/v1/regulations/admin/${id}/`, data),
+  delete: (id) => api.delete(`/v1/regulations/admin/${id}/`),
   internOverview: () => api.get('/v1/regulations/intern/overview/'),
   submitInternCompletion: () => api.post('/v1/regulations/intern/submit/'),
   adminInternRequests: (params) => api.get('/v1/regulations/admin/intern-requests/', { params }),
   approveInternRequest: (requestId, data) => api.post(`/v1/regulations/admin/intern-requests/${requestId}/approve/`, data || {}),
   markRead: (id) => api.post(`/v1/regulations/${id}/read/`),
   sendFeedback: (id, data) => api.post(`/v1/regulations/${id}/feedback/`, data),
+  submitFeedback: (id, data) => api.post(`/v1/regulations/${id}/feedback/`, data),
   submitQuiz: (id, data) => api.post(`/v1/regulations/${id}/quiz/`, data),
+  // read-report endpoint does not exist in backend — fall back to sendFeedback
+  submitReadReport: (id, data) => api.post(`/v1/regulations/${id}/feedback/`, data),
   acknowledge: (id) => api.post(`/v1/regulations/${id}/acknowledge/`),
 };
 
 export const instructionsAPI = {
+  // list uses compat layer (GET only) — works fine for reading
   list: () => api.get('/content/instructions/'),
-  create: (data) => api.post('/content/instructions/', data),
-  update: (id, data) => api.patch(`/content/instructions/${id}/`, data),
-  delete: (id) => api.delete(`/content/instructions/${id}/`),
+  // admin CRUD uses the real v1 content endpoint
+  create: (data) => api.post('/v1/content/instruction/', data),
+  update: (id, data) => api.patch(`/v1/content/instruction/${id}/`, data),
+  delete: (id) => api.delete(`/v1/content/instruction/${id}/`),
 };
 
 export const onboardingAPI = {
@@ -42,6 +52,13 @@ export const onboardingAPI = {
   getReports: (params) => api.get('/onboarding/reports/', { params }),
   reviewReport: (id, data) => api.post(`/onboarding/reports/${id}/review/`, data),
   getInternProgress: (userId) => api.get(`/v1/onboarding/progress/${userId}/detail/`),
+  // Admin day management
+  adminListDays: () => api.get('/v1/onboarding/admin/onboarding/days/'),
+  adminCreateDay: (data) => api.post('/v1/onboarding/admin/onboarding/days/', data),
+  adminUpdateDay: (id, data) => api.patch(`/v1/onboarding/admin/onboarding/days/${id}/`, data),
+  adminDeleteDay: (id) => api.delete(`/v1/onboarding/admin/onboarding/days/${id}/`),
+  adminCreateMaterial: (data) => api.post('/v1/onboarding/admin/onboarding/materials/', data),
+  adminDeleteMaterial: (id) => api.delete(`/v1/onboarding/admin/onboarding/materials/${id}/`),
 };
 
 export const schedulesAPI = {
@@ -70,9 +87,10 @@ export const attendanceAPI = {
 };
 
 export const feedbackAPI = {
-  list: () => api.get('/feedback/tickets/'),
-  create: (data) => api.post('/feedback/tickets/', data),
-  reply: (id, data) => api.post(`/feedback/tickets/${id}/reply/`, data),
+  list: () => api.get('/v1/content/admin/feedback/'),
+  create: (data) => api.post('/v1/content/feedback/', data),
+  reply: (id, data) => api.post(`/v1/content/admin/feedback/${id}/set-status/`, data),
+  delete: (id) => api.delete(`/v1/content/admin/feedback/${id}/`),
 };
 
 export const auditAPI = {
@@ -102,13 +120,4 @@ export const notificationsAPI = {
   markAllRead: () => api.patch('/v1/common/notifications/read-all/', null, { params: { lang: getStoredLocale() } }),
 };
 
-export const payrollAPI = {
-  my: (params) => api.get('/v1/payroll/', { params }),
-  adminList: (params) => api.get('/v1/payroll/admin/', { params }),
-  generate: (data) => api.post('/v1/payroll/admin/generate/', data),
-  setPeriodStatus: (periodId, data) => api.patch(`/v1/payroll/admin/periods/${periodId}/status/`, data),
-  salaryProfiles: () => api.get('/v1/payroll/admin/salary-profiles/'),
-  createSalaryProfile: (data) => api.post('/v1/payroll/admin/salary-profiles/', data),
-  updateSalaryProfile: (id, data) => api.patch(`/v1/payroll/admin/salary-profiles/${id}/`, data),
-};
 

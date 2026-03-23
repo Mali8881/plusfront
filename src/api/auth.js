@@ -165,6 +165,18 @@ export const subdivisionsAPI = {
       throw err;
     }
   },
+  update: async (id, data) => {
+    try {
+      return await api.patch(`/v1/accounts/org/subdivisions/${id}/`, data);
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.patch(`/v1/auth/subdivisions/${id}/`, data);
+      }
+      throw err;
+    }
+  },
+  delete: (id) => api.delete(`/v1/accounts/org/subdivisions/${id}/`),
 };
 
 export const positionsAPI = {

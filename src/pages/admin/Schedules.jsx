@@ -642,7 +642,8 @@ export default function AdminSchedules() {
                 </div>
               </div>
               <div style={{ padding: '8px 20px 0', fontSize: 12, color: 'var(--gray-600)' }}>
-                Серый: не началась смена/нет отметки · Красный: нет отметки через 30+ минут · Зеленый: отмечен в офисе · Синий: отмечен онлайн
+
+
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(170px, 1fr))', borderTop: '1px solid var(--gray-200)', overflowX: 'auto' }}>
                 {boardColumns.map((col, idx) => (

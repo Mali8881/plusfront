@@ -18,7 +18,12 @@ export default function Login() {
       if (u.role === 'department_head' || u.role === 'admin' || u.role === 'superadmin') navigate('/admin/overview');
       else navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Неверный логин или пароль');
+      setError(
+        err?.response?.data?.error ||
+        err?.response?.data?.detail ||
+        err?.message ||
+        'Неверный логин или пароль'
+      );
     }
   };
 

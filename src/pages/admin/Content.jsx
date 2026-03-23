@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import { instructionsAPI, newsAPI, regulationsAPI } from '../../api/content';
@@ -10,13 +11,19 @@ const emptyReg = {
   description: '',
   type: 'link',
   url: '',
+  version: 1,
+  change_log: '',
   quiz_allowed_mistakes: 1,
+  quiz_time_limit_seconds: 0,
+  quiz_retry_cooldown_minutes: 10,
+  quiz_max_attempts: 0,
   quiz_questions: [],
 };
 const emptyInstruction = { language: 'ru', type: 'text', content: '', is_active: true };
 
 export default function AdminContent() {
   const [tab, setTab] = useState('news');
+  const location = useLocation();
   const [news, setNews] = useState([]);
   const [regs, setRegs] = useState([]);
   const [instructions, setInstructions] = useState([]);
@@ -56,6 +63,14 @@ export default function AdminContent() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const nextTab = params.get('tab');
+    if (nextTab && ['news', 'regulations', 'instructions'].includes(nextTab)) {
+      setTab(nextTab);
+    }
+  }, [location.search]);
 
   const stats = useMemo(() => ({
     news: news.length,
@@ -103,8 +118,13 @@ export default function AdminContent() {
     payload.append('title', regForm.title);
     payload.append('description', regForm.description || '');
     payload.append('type', regForm.type);
+    payload.append('version', String(Math.max(Number(regForm.version || 1), 1)));
+    payload.append('change_log', regForm.change_log || '');
     payload.append('is_active', 'true');
     payload.append('quiz_allowed_mistakes', String(Math.max(Number(regForm.quiz_allowed_mistakes || 0), 0)));
+    payload.append('quiz_time_limit_seconds', String(Math.max(Number(regForm.quiz_time_limit_seconds || 0), 0)));
+    payload.append('quiz_retry_cooldown_minutes', String(Math.max(Number(regForm.quiz_retry_cooldown_minutes || 0), 0)));
+    payload.append('quiz_max_attempts', String(Math.max(Number(regForm.quiz_max_attempts || 0), 0)));
     payload.append('quiz_questions', JSON.stringify(normalizedQuizQuestions));
     payload.append('quiz_question', '');
     payload.append('quiz_expected_answer', '');
@@ -126,6 +146,8 @@ export default function AdminContent() {
     } catch (e) {
       const detail = e.response?.data;
       if (detail?.file?.[0]) setError(detail.file[0]);
+      else if (detail?.version?.[0]) setError(detail.version[0]);
+      else if (detail?.change_log?.[0]) setError(detail.change_log[0]);
       else setError(e.response?.data?.detail || 'Ошибка сохранения регламента.');
     }
   };
@@ -205,6 +227,7 @@ export default function AdminContent() {
                     <input className="form-input" type="file" accept="image/*" onChange={(e) => setNewsImage(e.target.files?.[0] || null)} />
                     <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{newsImage ? `Выбрано изображение: ${newsImage.name}` : 'Изображение не выбрано'}</div>
                   </div>
+
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-primary btn-sm" onClick={saveNews}><Plus size={13} /> {newsEditId ? 'Сохранить' : 'Добавить'}</button>
                     {newsEditId && <button className="btn btn-secondary btn-sm" onClick={() => { setNewsEditId(null); setNewsForm(emptyNews); setNewsImage(null); }}>Отмена</button>}
@@ -238,6 +261,33 @@ export default function AdminContent() {
                     <option value="file">Файл</option>
                   </select>
 
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 180px) 1fr', gap: 8 }}>
+                    <div className="form-group">
+                      <label className="form-label">Версия</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        min={1}
+                        value={regForm.version}
+                        onChange={(e) => setRegForm((f) => ({ ...f, version: e.target.value }))}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Что изменилось</label>
+                      <textarea
+                        className="form-textarea"
+                        placeholder="Например: добавили раздел про безопасность, обновили порядок согласования."
+                        value={regForm.change_log}
+                        onChange={(e) => setRegForm((f) => ({ ...f, change_log: e.target.value }))}
+                        style={{ minHeight: 72 }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                    Если меняете содержание документа, увеличьте версию и заполните список изменений. Это сбросит статус прочтения у сотрудников.
+                  </div>
+
                   <div className="form-group">
                     <label className="form-label">Допустимые ошибки</label>
                     <input
@@ -248,6 +298,39 @@ export default function AdminContent() {
                       value={regForm.quiz_allowed_mistakes}
                       onChange={(e) => setRegForm((f) => ({ ...f, quiz_allowed_mistakes: e.target.value }))}
                     />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                    <div className="form-group">
+                      <label className="form-label">Таймер теста, сек</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        min={0}
+                        value={regForm.quiz_time_limit_seconds}
+                        onChange={(e) => setRegForm((f) => ({ ...f, quiz_time_limit_seconds: e.target.value }))}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Пауза между попытками, мин</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        min={0}
+                        value={regForm.quiz_retry_cooldown_minutes}
+                        onChange={(e) => setRegForm((f) => ({ ...f, quiz_retry_cooldown_minutes: e.target.value }))}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Макс. попыток</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        min={0}
+                        value={regForm.quiz_max_attempts}
+                        onChange={(e) => setRegForm((f) => ({ ...f, quiz_max_attempts: e.target.value }))}
+                      />
+                    </div>
                   </div>
 
                   <div style={{ border: '1px solid var(--gray-200)', borderRadius: 10, padding: 10, display: 'grid', gap: 10 }}>
@@ -355,6 +438,7 @@ export default function AdminContent() {
                 rows={regs}
                 columns={[
                   { key: 'title', label: 'НАЗВАНИЕ' },
+                  { key: 'version', label: 'ВЕРСИЯ' },
                   { key: 'type', label: 'ТИП' },
                   { key: 'quiz_questions_count', label: 'ВОПРОСОВ' },
                   { key: 'created_at', label: 'СОЗДАНО' },
@@ -366,7 +450,12 @@ export default function AdminContent() {
                     description: item.description || '',
                     type: item.type || 'link',
                     url: item.external_url || '',
+                    version: item.version ?? 1,
+                    change_log: item.change_log || '',
                     quiz_allowed_mistakes: item.quiz_allowed_mistakes ?? 1,
+                    quiz_time_limit_seconds: item.quiz_time_limit_seconds ?? 0,
+                    quiz_retry_cooldown_minutes: item.quiz_retry_cooldown_minutes ?? 10,
+                    quiz_max_attempts: item.quiz_max_attempts ?? 0,
                     quiz_questions: Array.isArray(item.quiz_questions) ? item.quiz_questions : [],
                   });
                   setRegFile(null);
@@ -475,3 +564,11 @@ function DataTable({ rows, columns, onEdit, onDelete, hideActions = false, mapRo
     </div>
   );
 }
+
+
+
+
+
+
+
+

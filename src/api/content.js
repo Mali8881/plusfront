@@ -16,7 +16,7 @@ export const regulationsAPI = {
   submitInternCompletion: () => api.post('/v1/regulations/intern/submit/'),
   adminInternRequests: (params) => api.get('/v1/regulations/admin/intern-requests/', { params }),
   approveInternRequest: (requestId, data) => api.post(`/v1/regulations/admin/intern-requests/${requestId}/approve/`, data || {}),
-  markRead: (id) => api.post(`/v1/regulations/${id}/read/`),
+  markRead: (id, data) => api.post(`/v1/regulations/${id}/read/`, data),
   sendFeedback: (id, data) => api.post(`/v1/regulations/${id}/feedback/`, data),
   submitQuiz: (id, data) => api.post(`/v1/regulations/${id}/quiz/`, data),
   acknowledge: (id) => api.post(`/v1/regulations/${id}/acknowledge/`),
@@ -32,6 +32,8 @@ export const instructionsAPI = {
 export const onboardingAPI = {
   getMy: () => api.get('/onboarding/my/'),
   listDays: () => api.get('/v1/onboarding/days/'),
+  adminCreateDay: (data) => api.post('/v1/onboarding/admin/onboarding/days/', data),
+  adminUpdateDay: (id, data) => api.patch(`/v1/onboarding/admin/onboarding/days/${id}/`, data),
   getDay: (id) => api.get(`/v1/onboarding/days/${id}/`),
   completeDay: (id) => api.post(`/v1/onboarding/days/${id}/complete/`),
   getInternRole: () => api.get('/v1/accounts/me/intern-role/'),
@@ -70,6 +72,7 @@ export const attendanceAPI = {
 
 export const feedbackAPI = {
   list: () => api.get('/feedback/tickets/'),
+  exitSurveys: () => api.get('/feedback/exit-surveys/'),
   create: (data) => api.post('/feedback/tickets/', data),
   reply: (id, data) => api.post(`/feedback/tickets/${id}/reply/`, data),
 };
@@ -86,6 +89,12 @@ export const tasksAPI = {
   detail: (id) => api.get(`/v1/tasks/${id}/`),
   update: (id, data) => api.patch(`/v1/tasks/${id}/`, data),
   move: (id, column_id) => api.patch(`/v1/tasks/${id}/move/`, { column_id }),
+  attachments: (taskId) => api.get(`/v1/tasks/${taskId}/attachments/`),
+  uploadAttachment: (taskId, data) => api.post(`/v1/tasks/${taskId}/attachments/`, data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  deleteAttachment: (attachmentId) => api.delete(`/v1/tasks/attachments/${attachmentId}/`),
+  moves: (params) => api.get('/v1/tasks/moves/', { params }),
   dailyReports: (params) => api.get('/v1/reports/employee/daily/', { params }),
   submitDailyReport: (data) => api.post('/v1/reports/employee/daily/', data),
 };
@@ -109,4 +118,23 @@ export const payrollAPI = {
   salaryProfiles: () => api.get('/v1/payroll/admin/salary-profiles/'),
   createSalaryProfile: (data) => api.post('/v1/payroll/admin/salary-profiles/', data),
   updateSalaryProfile: (id, data) => api.patch(`/v1/payroll/admin/salary-profiles/${id}/`, data),
+};
+
+export const gamificationAPI = {
+  my: () => api.get('/v1/gamification/my/'),
+  leaderboard: (params) => api.get('/v1/gamification/leaderboard/', { params }),
+};
+
+export const desksAPI = {
+  list: (params) => api.get('/v1/desks/', { params }),
+  availability: (params) => api.get('/v1/desks/availability/', { params }),
+  book: (data) => api.post('/v1/desks/bookings/', data),
+  cancel: (id) => api.delete(`/v1/desks/bookings/${id}/`),
+  rooms: (params) => api.get('/v1/desks/rooms/', { params }),
+  roomCreate: (data) => api.post('/v1/desks/rooms/', data),
+  roomDelete: (id) => api.delete(`/v1/desks/rooms/${id}/`),
+  roomOptions: () => api.get('/v1/desks/rooms/options/'),
+  roomsAvailability: (params) => api.get('/v1/desks/rooms/availability/', { params }),
+  roomBook: (data) => api.post('/v1/desks/rooms/bookings/', data),
+  roomCancel: (id) => api.delete(`/v1/desks/rooms/bookings/${id}/`),
 };

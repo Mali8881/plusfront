@@ -51,6 +51,11 @@ export const promotionRequestsAPI = {
   reject: (id, data) => api.post(`/auth/promotion-requests/${id}/reject/`, data),
 };
 
+export const exitInterviewsAPI = {
+  getByToken: (token) => api.get(`/exit-interviews/${token}/`),
+  submitByToken: (token, data) => api.post(`/exit-interviews/${token}/`, data),
+};
+
 export const securityAPI = {
   unlockUsers: (data) => api.post('/security/unlock-users/', data),
   forceLogoutAll: () => api.post('/security/force-logout/'),

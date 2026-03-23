@@ -1,9 +1,9 @@
 ﻿import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, ChevronDown, LogOut, User } from 'lucide-react';
+import { Bell, ChevronDown, Flame, LogOut, Sparkles, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
-import { notificationsAPI } from '../../api/content';
+import { gamificationAPI, notificationsAPI } from '../../api/content';
 
 const ROLE_COLORS = {
   intern: '#2563EB',
@@ -22,18 +22,12 @@ export default function Header({ title }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifs, setNotifs] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [gamification, setGamification] = useState(null);
+  const [notifFilter, setNotifFilter] = useState('all');
 
   const initials = user?.name?.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase() || '??';
   const roleColor = ROLE_COLORS[user?.role] || '#2563EB';
   const firstName = user?.name?.split(' ')[0] || '';
-
-  const i18n = {
-    ru: { welcome: 'Добро пожаловать', notifications: 'Уведомления', read: 'Прочитано', noEvents: 'Новых событий нет.', profile: 'Профиль', logout: 'Выйти' },
-    en: { welcome: 'Welcome', notifications: 'Notifications', read: 'Mark read', noEvents: 'No new events.', profile: 'Profile', logout: 'Logout' },
-    kg: { welcome: 'Кош келиңиз', notifications: 'Билдирмелер', read: 'Окулган', noEvents: 'Жаңы окуялар жок.', profile: 'Профиль', logout: 'Чыгуу' },
-  }[locale] || {
-    welcome: 'Добро пожаловать', notifications: 'Уведомления', read: 'Прочитано', noEvents: 'Новых событий нет.', profile: 'Профиль', logout: 'Выйти',
-  };
 
   const refreshNotifications = async () => {
     if (!user?.id) return;
@@ -48,8 +42,19 @@ export default function Header({ title }) {
     }
   };
 
+  const refreshGamification = async () => {
+    if (!user?.id) return;
+    try {
+      const res = await gamificationAPI.my();
+      setGamification(res?.data || null);
+    } catch {
+      setGamification(null);
+    }
+  };
+
   useEffect(() => {
     refreshNotifications();
+    refreshGamification();
     const i = setInterval(() => { refreshNotifications(); }, 10000);
     return () => clearInterval(i);
   }, [user?.id, user?.role]);
@@ -64,11 +69,75 @@ export default function Header({ title }) {
     }
   };
 
+  const isDeadlineNotification = (item) => {
+    const text = `${item?.title || ''} ${item?.message || ''}`.toLowerCase();
+    return (
+      text.includes('deadline') ||
+      text.includes('due on') ||
+      text.includes('reminder') ||
+      text.includes('дедлайн') ||
+      text.includes('напомин') ||
+      text.includes('отчет')
+    );
+  };
+
+  const isStatusNotification = (item) => {
+    const text = `${item?.title || ''} ${item?.message || ''}`.toLowerCase();
+    return (
+      text.includes('status updated') ||
+      text.includes('moved to') ||
+      text.includes('статус') ||
+      text.includes('перемещ')
+    );
+  };
+
+  const filteredNotifs = notifs.filter((item) => {
+    if (notifFilter === 'deadlines') return isDeadlineNotification(item);
+    if (notifFilter === 'status') return isStatusNotification(item);
+    return true;
+  });
+
   return (
     <header className="header">
       <div className="header-title">{title || ''}</div>
-      <div style={{ flex: 1, paddingLeft: 20, fontSize: 14, color: 'var(--gray-500)', display: 'flex', alignItems: 'center', gap: 6 }}>
-        {i18n.welcome}, <b style={{ color: 'var(--gray-800)' }}>{firstName}!</b>
+      <div style={{ flex: 1, paddingLeft: 20, fontSize: 14, color: 'var(--gray-500)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        {t('header.welcome', 'Добро пожаловать')}, <b style={{ color: 'var(--gray-800)' }}>{firstName}!</b>
+        {gamification?.enabled && Number.isFinite(gamification?.level) && (
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              padding: '2px 8px',
+              borderRadius: 999,
+              background: '#ecfccb',
+              color: '#3f6212',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+            title="Текущий уровень"
+          >
+            <Sparkles size={12} color="#4d7c0f" /> Lv. {gamification.level}
+          </span>
+        )}
+        {gamification?.enabled && Number.isFinite(gamification?.current_streak) && (
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              padding: '2px 8px',
+              borderRadius: 999,
+              background: 'var(--gray-100)',
+              color: 'var(--gray-700)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+            title="Стрик за своевременную отметку начала работы"
+          >
+            <Flame size={12} color="#f97316" /> Стрик: {gamification.current_streak}
+          </span>
+        )}
       </div>
       <div className="header-lang" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         {['ru', 'en', 'kg'].map((code, idx) => (
@@ -98,19 +167,55 @@ export default function Header({ title }) {
         {notifOpen && (
           <div style={{ position: 'absolute', top: '100%', right: -20, marginTop: 8, width: 360, maxWidth: 'calc(100vw - 24px)', background: 'var(--white)', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', zIndex: 120 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--gray-100)' }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{i18n.notifications}</div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{t('header.notifications', 'Уведомления')}</div>
               <button className="btn btn-secondary btn-sm" onClick={(e) => { e.stopPropagation(); readAllNotifications(); }}>
-                {i18n.read}
+                {t('header.read', 'Прочитано')}
+              </button>
+            </div>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--gray-100)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setNotifFilter('all'); }}
+                style={{ background: notifFilter === 'all' ? 'var(--primary)' : undefined, color: notifFilter === 'all' ? '#fff' : undefined }}
+              >
+                Все
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setNotifFilter('deadlines'); }}
+                style={{ background: notifFilter === 'deadlines' ? 'var(--primary)' : undefined, color: notifFilter === 'deadlines' ? '#fff' : undefined }}
+              >
+                Дедлайны
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setNotifFilter('status'); }}
+                style={{ background: notifFilter === 'status' ? 'var(--primary)' : undefined, color: notifFilter === 'status' ? '#fff' : undefined }}
+              >
+                Статусы
               </button>
             </div>
             <div style={{ maxHeight: 360, overflow: 'auto', padding: 8 }}>
-              {notifs.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--gray-500)', padding: 8 }}>{i18n.noEvents}</div>
+              {filteredNotifs.length === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--gray-500)', padding: 8 }}>
+                  {notifFilter === 'all' ? t('header.noEvents', 'Новых событий нет.') : 'Нет уведомлений по выбранному фильтру.'}
+                </div>
               )}
-              {notifs.map((n) => (
-                <div key={n.id} style={{ padding: '8px 10px', borderBottom: '1px solid var(--gray-100)' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-800)' }}>{n.title}</div>
+              {filteredNotifs.map((n) => (
+                <div key={n.id} style={{ padding: '8px 10px', borderBottom: '1px solid var(--gray-100)', background: n.is_pinned ? '#eff6ff' : 'transparent', borderRadius: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-800)' }}>{n.title}</div>
+                    {n.is_pinned && (
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#2563eb', background: '#dbeafe', borderRadius: 999, padding: '2px 6px' }}>
+                        Закреплено
+                      </div>
+                    )}
+                  </div>
                   <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 2 }}>{n.message}</div>
+                  {n.expires_at && <div style={{ fontSize: 11, color: '#2563eb', marginTop: 3 }}>До {new Date(n.expires_at).toLocaleString('ru-RU')}</div>}
                   {n.created_at && <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 3 }}>{new Date(n.created_at).toLocaleString('ru-RU')}</div>}
                 </div>
               ))}
@@ -140,12 +245,12 @@ export default function Header({ title }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', fontSize: 14, color: 'var(--gray-700)' }}
               onClick={() => { navigate('/profile'); setDropOpen(false); }}>
-              <User size={15} /> {i18n.profile}
+              <User size={15} /> {t('header.profile', 'Профиль')}
             </div>
             <div style={{ height: 1, background: 'var(--gray-200)', margin: '4px 0' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', fontSize: 14, color: 'var(--danger)' }}
               onClick={() => { logout(); navigate('/login'); }}>
-              <LogOut size={15} /> {i18n.logout}
+              <LogOut size={15} /> {t('header.logout', 'Выйти')}
             </div>
           </div>
         )}

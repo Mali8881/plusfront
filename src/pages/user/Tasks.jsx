@@ -49,6 +49,7 @@ function normalizeReport(raw) {
     taken: raw.taken_tasks || '',
     completed: raw.completed_tasks || '',
     blockers: raw.blockers || '',
+    isLate: Boolean(raw.is_late),
     summary: raw.summary || '',
   };
 }
@@ -56,22 +57,24 @@ function normalizeReport(raw) {
 export default function Tasks() {
   const { user } = useAuth();
   const role = user?.role;
-  const canSeeTeamTasksSection = ['department_head', 'admin', 'superadmin', 'projectmanager'].includes(role);
+  const canSeeTeamTasksSection = ['teamlead', 'department_head', 'admin', 'superadmin', 'projectmanager'].includes(role);
   const canSeeOwnTasksSection = role !== 'superadmin';
   const canSwitchTaskSections = canSeeTeamTasksSection;
   const [taskSection, setTaskSection] = useState(role === 'superadmin' ? 'team' : 'my');
-  const canSubmitDaily = ['employee', 'projectmanager'].includes(user?.role);
-  const canViewDaily = ['department_head', 'admin', 'superadmin', 'projectmanager'].includes(user?.role);
-  const canViewTeamList = ['projectmanager', 'department_head', 'admin', 'superadmin'].includes(user?.role);
+  const canSubmitDaily = ['employee', 'teamlead', 'projectmanager'].includes(user?.role);
+  const canViewDaily = ['teamlead', 'department_head', 'admin', 'superadmin', 'projectmanager'].includes(user?.role);
+  const canViewTeamList = ['teamlead', 'projectmanager', 'department_head', 'admin', 'superadmin'].includes(user?.role);
 
   const [tasks, setTasks] = useState([]);
   const [reports, setReports] = useState([]);
+  const [taskMoves, setTaskMoves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState('');
   const [assigneeOptions, setAssigneeOptions] = useState([]);
   const [movingTaskId, setMovingTaskId] = useState(null);
   const [reportDate, setReportDate] = useState(todayISO());
+  const [lateFilter, setLateFilter] = useState('all');
   const [progressUser, setProgressUser] = useState(null);
   const [progressData, setProgressData] = useState(null);
   const [progressLoading, setProgressLoading] = useState(false);
@@ -95,10 +98,11 @@ export default function Tasks() {
     setLoading(true);
     setError('');
     try {
-      const [myRes, teamRes, reportsRes] = await Promise.all([
+      const [myRes, teamRes, reportsRes, movesRes] = await Promise.all([
         canSeeOwnTasksSection ? tasksAPI.my().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
         canSeeTeamTasksSection ? tasksAPI.team().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
         tasksAPI.dailyReports({ date: reportDate }).catch(() => ({ data: [] })),
+        canSubmitDaily ? tasksAPI.moves({ date: reportDate }).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       ]);
 
       const myTasks = Array.isArray(myRes.data) ? myRes.data : [];
@@ -110,6 +114,8 @@ export default function Tasks() {
 
       const reportRows = Array.isArray(reportsRes.data) ? reportsRes.data : [];
       setReports(reportRows.map(normalizeReport));
+      const moveRows = Array.isArray(movesRes.data) ? movesRes.data : [];
+      setTaskMoves(moveRows);
     } catch {
       setError('Не удалось загрузить задачи или отчеты.');
     } finally {
@@ -265,6 +271,50 @@ export default function Tasks() {
   const completedDays = Number(progressData?.overview?.completed_days || 0);
   const totalDays = Number(progressData?.overview?.total_days || 0);
   const progressPercent = totalDays > 0 ? Math.min(100, Math.round((completedDays / totalDays) * 100)) : 0;
+  const filteredReports = useMemo(() => {
+    return reports.filter((item) => {
+      if (lateFilter === 'late' && !item.isLate) return false;
+      if (lateFilter === 'ontime' && item.isLate) return false;
+      return true;
+    });
+  }, [reports, lateFilter]);
+
+  const dailySuggestions = useMemo(() => {
+    const latestByTask = new Map();
+    taskMoves.forEach((move) => {
+      if (!move?.task_id) return;
+      const prev = latestByTask.get(move.task_id);
+      const currentTime = new Date(move.moved_at || 0);
+      if (!prev || currentTime > new Date(prev.moved_at || 0)) {
+        latestByTask.set(move.task_id, move);
+      }
+    });
+    const started = new Set();
+    const processing = new Set();
+    const completed = new Set();
+    latestByTask.forEach((move) => {
+      const title = move.task_title || `#${move.task_id}`;
+      if (Number(move.to_column_order) === 2) started.add(title);
+      if (Number(move.to_column_order) === 3) processing.add(title);
+      if (Number(move.to_column_order) === 4) completed.add(title);
+    });
+    return {
+      started: Array.from(started),
+      processing: Array.from(processing),
+      completed: Array.from(completed),
+    };
+  }, [taskMoves]);
+
+  const appendSuggestion = (field, value) => {
+    if (!value) return;
+    setDailyForm((prev) => {
+      const current = (prev[field] || '').trim();
+      if (!current) return { ...prev, [field]: value };
+      const lines = current.split('\n').map((item) => item.trim());
+      if (lines.includes(value)) return prev;
+      return { ...prev, [field]: `${current}\n${value}` };
+    });
+  };
 
   return (
     <MainLayout title="Задачи">
@@ -374,8 +424,50 @@ export default function Tasks() {
                   </div>
                 </div>
                 <textarea className="form-textarea" placeholder="Что начал" value={dailyForm.started_tasks} onChange={(e) => setDailyForm((p) => ({ ...p, started_tasks: e.target.value }))} />
-                <textarea className="form-textarea" placeholder="Что взял в работу" value={dailyForm.taken_tasks} onChange={(e) => setDailyForm((p) => ({ ...p, taken_tasks: e.target.value }))} />
+                {dailySuggestions.started.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {dailySuggestions.started.map((title) => (
+                      <button
+                        key={`started-${title}`}
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => appendSuggestion('started_tasks', title)}
+                      >
+                        {title}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <textarea className="form-textarea" placeholder="Что отправил на обработку" value={dailyForm.taken_tasks} onChange={(e) => setDailyForm((p) => ({ ...p, taken_tasks: e.target.value }))} />
+                {dailySuggestions.processing.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {dailySuggestions.processing.map((title) => (
+                      <button
+                        key={`processing-${title}`}
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => appendSuggestion('taken_tasks', title)}
+                      >
+                        {title}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <textarea className="form-textarea" placeholder="Что завершил" value={dailyForm.completed_tasks} onChange={(e) => setDailyForm((p) => ({ ...p, completed_tasks: e.target.value }))} />
+                {dailySuggestions.completed.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {dailySuggestions.completed.map((title) => (
+                      <button
+                        key={`completed-${title}`}
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => appendSuggestion('completed_tasks', title)}
+                      >
+                        {title}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <textarea className="form-textarea" placeholder="Проблемы / блокеры" value={dailyForm.blockers} onChange={(e) => setDailyForm((p) => ({ ...p, blockers: e.target.value }))} />
                 <div>
                   <button className="btn btn-primary" onClick={submitDailyReport}>Отправить отчет</button>
@@ -388,32 +480,38 @@ export default function Tasks() {
             <div className="card" style={{ marginTop: 16 }}>
               <div className="card-body">
                 <div style={{ fontWeight: 700, marginBottom: 10 }}>Отчеты сотрудников за {reportDate}</div>
-                <div className="table-wrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Сотрудник</th>
-                        <th>Начал</th>
-                        <th>Взял в работу</th>
-                        <th>Завершил</th>
-                        <th>Блокеры</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {reports.map((r) => (
-                        <tr key={r.id}>
-                          <td>{r.username}</td>
-                          <td>{r.started || '-'}</td>
-                          <td>{r.taken || '-'}</td>
-                          <td>{r.completed || '-'}</td>
-                          <td>{r.blockers || '-'}</td>
-                        </tr>
-                      ))}
-                      {reports.length === 0 && (
-                        <tr><td colSpan={5}>Отчетов за этот день пока нет.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+                  <div className="form-group" style={{ minWidth: 180 }}>
+                    <label className="form-label">Опоздание</label>
+                    <select className="form-select" value={lateFilter} onChange={(e) => setLateFilter(e.target.value)}>
+                      <option value="all">Все</option>
+                      <option value="late">Опоздал</option>
+                      <option value="ontime">Вовремя</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+                  {filteredReports.map((r) => (
+                    <div key={r.id} className="card" style={{ marginBottom: 0 }}>
+                      <div className="card-body" style={{ display: 'grid', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <div style={{ fontWeight: 700 }}>{r.username}</div>
+                          <span className={`badge ${r.isLate ? 'badge-red' : 'badge-green'}`}>
+                            {r.isLate ? 'Опоздал' : 'Вовремя'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Дата: {r.date || '—'}</div>
+                        <div style={{ fontSize: 13 }}><strong>Начал:</strong> {r.started || '-'}</div>
+                        <div style={{ fontSize: 13 }}><strong>Взял в работу:</strong> {r.taken || '-'}</div>
+                        <div style={{ fontSize: 13 }}><strong>Завершил:</strong> {r.completed || '-'}</div>
+                        <div style={{ fontSize: 13 }}><strong>Блокеры:</strong> {r.blockers || '-'}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredReports.length === 0 && (
+                    <div style={{ color: 'var(--gray-500)', fontSize: 13 }}>Отчетов за этот день пока нет.</div>
+                  )}
                 </div>
               </div>
             </div>

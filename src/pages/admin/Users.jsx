@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Pencil, Lock, Send, Check, Ban, X } from 'lucide-react';
+import { Plus, Search, Pencil, Lock, Send, Check, Ban, X, Copy, ExternalLink } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -17,6 +17,10 @@ const ROLE_LABELS = {
   department_head: 'Руководитель отдела',
   admin: 'Админ',
   superadmin: 'Суперадмин',
+};
+
+const EXIT_SURVEY_LABELS = {
+  pending: 'Ссылка активна',
 };
 
 const EMPTY_FORM = {
@@ -51,7 +55,24 @@ function mapUser(raw) {
     managerId: raw.manager || null,
     managerName: raw.manager_name || '',
     status: raw.is_active ? 'active' : 'blocked',
+    exitSurveyStatus: raw.exit_survey_status || '',
+    exitSurveyCreatedAt: raw.exit_survey_created_at || '',
+    exitSurveySubmittedAt: raw.exit_survey_submitted_at || '',
+    exitSurveyPath: raw.exit_survey_path || '',
   };
+}
+
+function formatDateTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function fixedSubdivisionLabelByRole(role) {
@@ -247,6 +268,16 @@ export default function AdminUsers() {
     return subdivisions.filter((s) => Number(s.department_id) === Number(effectiveDepartment));
   }, [subdivisions, form.department, form.role, isDepartmentHead, ownDepartmentId]);
 
+  const copyExitSurveyLink = async (target) => {
+    if (!target.exitSurveyPath) return;
+    const fullUrl = `${window.location.origin}${target.exitSurveyPath}`;
+    try {
+      await navigator.clipboard.writeText(fullUrl);
+    } catch {
+      setError('Не удалось скопировать ссылку.');
+    }
+  };
+
   return (
     <MainLayout title="Админ-панель · Пользователи">
       <div className="page-header">
@@ -338,6 +369,7 @@ export default function AdminUsers() {
                   <th>Отдел</th>
                   <th>Роль</th>
                   <th>Статус</th>
+                  <th>Exit-ссылка</th>
                   <th>Действия</th>
                 </tr>
               </thead>
@@ -359,6 +391,42 @@ export default function AdminUsers() {
                     <td>{u.department || '-'}</td>
                     <td>{ROLE_LABELS[u.role] || u.role}</td>
                     <td>{u.status === 'active' ? 'Активен' : 'Заблокирован'}</td>
+                    <td>
+                      {u.exitSurveyStatus ? (
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>
+                            {EXIT_SURVEY_LABELS[u.exitSurveyStatus] || u.exitSurveyStatus}
+                          </div>
+                          {u.exitSurveyCreatedAt ? (
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                              Ссылка создана: {formatDateTime(u.exitSurveyCreatedAt)}
+                            </div>
+                          ) : null}
+                          {u.exitSurveyStatus === 'pending' ? (
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button
+                                className="btn-icon"
+                                title="Скопировать ссылку"
+                                onClick={() => copyExitSurveyLink(u)}
+                              >
+                                <Copy size={14} />
+                              </button>
+                              <a
+                                className="btn-icon"
+                                title="Открыть анкету"
+                                href={u.exitSurveyPath}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <ExternalLink size={14} />
+                              </a>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--gray-500)' }}>-</span>
+                      )}
+                    </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn-icon" title="Редактировать" onClick={() => openEdit(u)}><Pencil size={14} /></button>

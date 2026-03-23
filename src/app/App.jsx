@@ -4,6 +4,7 @@ import { LocaleProvider } from '../context/LocaleContext';
 
 import Login          from '../pages/auth/Login';
 import ForgotPassword from '../pages/auth/ForgotPassword';
+import ExitInterview  from '../pages/public/ExitInterview';
 import Dashboard      from '../pages/user/Dashboard';
 import Onboarding     from '../pages/user/Onboarding';
 import Regulations    from '../pages/user/Regulations';
@@ -13,12 +14,12 @@ import Instructions   from '../pages/user/Instructions';
 import Tasks          from '../pages/user/Tasks';
 import Salary         from '../pages/user/Salary';
 import Company        from '../pages/user/Company';
+import DeskBooking    from '../pages/user/DeskBooking';
 
 import AdminUsers      from '../pages/admin/Users';
 import AdminRoles      from '../pages/admin/Roles';
 import AdminDepartmentsSubdivisions from '../pages/admin/DepartmentsSubdivisions';
 import AdminContent    from '../pages/admin/Content';
-import AdminOnboarding from '../pages/admin/Onboarding';
 import AdminOverview   from '../pages/admin/Overview';
 import AdminSchedules  from '../pages/admin/Schedules';
 import AdminFeedback   from '../pages/admin/Feedback';
@@ -63,18 +64,11 @@ function SuperAdminRoute({ children }) {
   return children;
 }
 
-function OnboardingManageRoute({ children }) {
-  const { user } = useAuth();
-  if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== 'projectmanager') return <Navigate to="/dashboard" replace />;
-  return children;
-}
-
 function InternsManageRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (!['admin', 'superadmin'].includes(String(user.role || '').toLowerCase())) {
-    return <Navigate to="/admin/overview" replace />;
+  if (!['projectmanager', 'department_head', 'admin', 'superadmin'].includes(String(user.role || '').toLowerCase())) {
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 }
@@ -145,11 +139,13 @@ function AppRoutes() {
       <Route path="/"               element={<HomeRedirect />} />
       <Route path="/login"          element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
       <Route path="/forgot-password" element={<PublicOnlyRoute><ForgotPassword /></PublicOnlyRoute>} />
+      <Route path="/exit-interview/:token" element={<ExitInterview />} />
 
       <Route path="/dashboard"      element={<PrivateRoute><Dashboard /></PrivateRoute>} />
       <Route path="/onboarding"     element={<PrivateRoute><Onboarding /></PrivateRoute>} />
       <Route path="/regulations"    element={<NonInternRoute><Regulations /></NonInternRoute>} />
       <Route path="/schedule"       element={<NonInternRoute><Schedule /></NonInternRoute>} />
+      <Route path="/desks"          element={<NonInternRoute><DeskBooking /></NonInternRoute>} />
       <Route path="/profile"        element={<PrivateRoute><Profile /></PrivateRoute>} />
       <Route path="/instructions"   element={<PrivateRoute><Instructions /></PrivateRoute>} />
       <Route path="/company"        element={<CompanyRoute><Company /></CompanyRoute>} />
@@ -162,7 +158,7 @@ function AppRoutes() {
       <Route path="/admin/roles"      element={<AdminRoute><AdminRoles /></AdminRoute>} />
       <Route path="/admin/departments-subdivisions" element={<AdminRoute><AdminDepartmentsSubdivisions /></AdminRoute>} />
       <Route path="/admin/content"    element={<ContentManageRoute><AdminContent /></ContentManageRoute>} />
-      <Route path="/admin/onboarding" element={<OnboardingManageRoute><AdminOnboarding /></OnboardingManageRoute>} />
+      <Route path="/admin/onboarding" element={<InternsManageRoute><AdminInterns /></InternsManageRoute>} />
       <Route path="/admin/interns"    element={<InternsManageRoute><AdminInterns /></InternsManageRoute>} />
       <Route path="/admin/schedules"  element={<AdminRoute><AdminSchedules /></AdminRoute>} />
       <Route path="/admin/feedback"   element={<AdminRoute><AdminFeedback /></AdminRoute>} />

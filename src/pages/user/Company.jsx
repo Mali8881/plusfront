@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import MainLayout from '../../layouts/MainLayout';
-import { companyAPI } from '../../api/content';
+import { companyAPI, gamificationAPI } from '../../api/content';
 import { usersAPI } from '../../api/auth';
 
 const NODE_COLORS = ['#D9F99D', '#FDE68A', '#C4B5FD', '#F9A8D4', '#93C5FD', '#67E8F9', '#FCA5A5', '#FDBA74'];
@@ -66,9 +66,11 @@ function UserProfileModal({ selected, onClose }) {
 
 export default function Company() {
   const [tab, setTab] = useState('structure');
+  const [ratingPeriod, setRatingPeriod] = useState('all_time');
   const [structure, setStructure] = useState(null);
   const [org, setOrg] = useState(null);
   const [users, setUsers] = useState([]);
+  const [leaderboard, setLeaderboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedMember, setSelectedMember] = useState(null);
@@ -86,6 +88,8 @@ export default function Company() {
         setOrg(orgRes.data || null);
         const usersRes = await usersAPI.list().catch(() => ({ data: [] }));
         setUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
+        const leaderboardRes = await gamificationAPI.leaderboard().catch(() => ({ data: null }));
+        setLeaderboard(leaderboardRes.data || null);
       } catch (e) {
         setError(e.response?.data?.detail || 'Не удалось загрузить данные компании.');
       } finally {
@@ -126,6 +130,10 @@ export default function Company() {
     return rows;
   }, [org, usersById]);
 
+  const leaderboardSection = leaderboard?.periods?.[ratingPeriod] || { rows: [], current_user: null, label: '' };
+  const leaderboardRows = Array.isArray(leaderboardSection.rows) ? leaderboardSection.rows : [];
+  const currentUserRow = leaderboardSection.current_user || null;
+
   return (
     <MainLayout title="Компания">
       <div className="page-header">
@@ -148,6 +156,7 @@ export default function Company() {
           <div className="tabs" style={{ marginBottom: 14 }}>
             <button className={`tab-btn ${tab === 'structure' ? 'active' : ''}`} onClick={() => setTab('structure')}>Структура</button>
             <button className={`tab-btn ${tab === 'employees' ? 'active' : ''}`} onClick={() => setTab('employees')}>Сотрудники</button>
+            <button className={`tab-btn ${tab === 'ratings' ? 'active' : ''}`} onClick={() => setTab('ratings')}>Рейтинги</button>
           </div>
 
           {tab === 'structure' ? (
@@ -262,6 +271,85 @@ export default function Company() {
                     ) : null}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          ) : null}
+
+          {tab === 'ratings' ? (
+            <div style={{ display: 'grid', gap: 16 }}>
+              <div className="card">
+                <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <span className="card-title">Рейтинг сотрудников</span>
+                  <div className="tabs" style={{ marginBottom: 0 }}>
+                    <button className={`tab-btn ${ratingPeriod === 'all_time' ? 'active' : ''}`} onClick={() => setRatingPeriod('all_time')}>Все время</button>
+                    <button className={`tab-btn ${ratingPeriod === 'week' ? 'active' : ''}`} onClick={() => setRatingPeriod('week')}>Неделя</button>
+                    <button className={`tab-btn ${ratingPeriod === 'month' ? 'active' : ''}`} onClick={() => setRatingPeriod('month')}>Месяц</button>
+                  </div>
+                </div>
+                <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                  <div style={{ border: '1px solid var(--gray-200)', borderRadius: 16, padding: '16px 18px', background: 'linear-gradient(135deg,#eff6ff,#f8fafc)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>Период</div>
+                    <div style={{ fontSize: 20, fontWeight: 800 }}>{leaderboardSection.label || 'Рейтинг'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 6 }}>Участников: {leaderboardRows.length}</div>
+                  </div>
+                  <div style={{ border: '1px solid var(--gray-200)', borderRadius: 16, padding: '16px 18px', background: 'linear-gradient(135deg,#ecfccb,#fefce8)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>Лидер периода</div>
+                    <div style={{ fontSize: 18, fontWeight: 800 }}>{leaderboardRows[0]?.full_name || 'Пока нет данных'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 6 }}>
+                      {ratingPeriod === 'all_time' ? `${leaderboardRows[0]?.xp_total ?? 0} XP всего` : `${leaderboardRows[0]?.period_xp ?? 0} XP за период`}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid var(--gray-200)', borderRadius: 16, padding: '16px 18px', background: 'linear-gradient(135deg,#fdf2f8,#faf5ff)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>Моя позиция</div>
+                    <div style={{ fontSize: 20, fontWeight: 800 }}>{currentUserRow ? `#${currentUserRow.rank}` : 'Вне рейтинга'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 6 }}>
+                      {currentUserRow ? `${ratingPeriod === 'all_time' ? currentUserRow.xp_total : currentUserRow.period_xp} XP` : 'Появится после игровых событий'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header"><span className="card-title">Таблица рейтинга</span></div>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>МЕСТО</th>
+                        <th>СОТРУДНИК</th>
+                        <th>ОТДЕЛ</th>
+                        <th>РОЛЬ</th>
+                        <th>УРОВЕНЬ</th>
+                        <th>{ratingPeriod === 'all_time' ? 'ВСЕГО XP' : 'XP ЗА ПЕРИОД'}</th>
+                        <th>СТРИК</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leaderboardRows.map((row) => (
+                        <tr key={`${ratingPeriod}-${row.user_id}`} style={currentUserRow?.user_id === row.user_id ? { background: '#f0fdf4' } : undefined}>
+                          <td><b>#{row.rank}</b></td>
+                          <td>
+                            <div style={{ fontWeight: 700 }}>{row.full_name}</div>
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>@{row.username}</div>
+                          </td>
+                          <td>
+                            <div>{row.department_name || '-'}</div>
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{row.subdivision_name || '-'}</div>
+                          </td>
+                          <td>{ROLE_LABELS[row.role] || row.role_label || row.role || '-'}</td>
+                          <td>Lv. {row.level}</td>
+                          <td>{ratingPeriod === 'all_time' ? row.xp_total : row.period_xp}</td>
+                          <td>{row.current_streak}</td>
+                        </tr>
+                      ))}
+                      {leaderboardRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} style={{ color: 'var(--gray-500)' }}>Рейтинг пока пуст.</td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           ) : null}

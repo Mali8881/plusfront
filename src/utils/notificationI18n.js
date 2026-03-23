@@ -5,6 +5,14 @@ const CODE_ALIASES = {
   schedule_request: 'schedule_request',
   feedback: 'feedback_ticket',
   feedback_ticket: 'feedback_ticket',
+  'feedback.new': 'feedback_ticket',
+  'onboarding.day_unlocked': 'onboarding_day_unlocked',
+  'onboarding.intern_completed': 'onboarding_intern_completed',
+  'onboarding.intern_approved': 'onboarding_intern_approved',
+  'regulation.updated': 'regulation_updated',
+  'report.daily_reminder': 'report_daily_reminder',
+  'report.daily_submitted': 'report_daily_submitted',
+  'schedule.weekly_plan_deadline_missed': 'schedule_deadline_missed',
 };
 
 function normalizeCode(raw) {
@@ -30,6 +38,8 @@ export function mapNotification(notification, t) {
 
   const rawCode = item.code || item.type || payload.code || payload.type;
   const code = normalizeCode(rawCode);
+  const action_url = item.action_url || payload.action_url || item.actionUrl || payload.actionUrl || '';
+  const severity = item.severity || payload.severity || '';
 
   const titleFromApi = item.title || payload.title || '';
   const messageFromApi = item.message || item.text || payload.message || payload.text || '';
@@ -49,6 +59,8 @@ export function mapNotification(notification, t) {
     message,
     created_at: item.created_at || payload.created_at || '',
     code,
+    severity,
+    action_url,
     raw: item,
   };
 }

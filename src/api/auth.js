@@ -21,37 +21,24 @@ export const authAPI = {
   login: async (username, password) => {
     const identity = String(username || '').trim();
     const secret = String(password || '');
-    const payloads = [
+    return api.post(
+      '/v1/accounts/login/',
       { username: identity, password: secret },
-      { login: identity, password: secret },
-      { email: identity, password: secret },
-    ];
-
-    let lastError = null;
-    for (const payload of payloads) {
-      try {
-        return await api.post('/v1/accounts/login/', payload, { skipAuth: true });
-      } catch (err) {
-        lastError = err;
-        const status = Number(err?.response?.status || 0);
-        if (status && status !== 400 && status !== 401 && status !== 422) {
-          throw err;
-        }
-      }
-    }
-    throw lastError;
+      { skipAuth: true }
+    );
   },
 
   refresh: (refresh) =>
     api.post('/auth/token/refresh/', { refresh }, { _silent: true }),
 
-  logout: () => Promise.resolve({ data: { detail: 'logout handled on client' } }),
+  logout: (refresh) =>
+    api.post('/v1/accounts/logout/', refresh ? { refresh } : {}),
 
   getMe: () => api.get('/v1/auth/me/'),
 
   updateMe: (data) => api.patch('/v1/auth/me/', data),
 
-  changePassword: (data) => api.post('/v1/auth/me/password/', data),
+  changePassword: (data) => api.post('/v1/accounts/me/profile/password/', data),
 
   requestPasswordReset: (username_or_email) =>
     api.post('/v1/accounts/password-reset/request/', { username_or_email }, { skipAuth: true }),
@@ -61,17 +48,75 @@ export const authAPI = {
 };
 
 export const usersAPI = {
-  list: (params) => {
+  list: async (params) => {
     if (!canReadOrgUsersOnClient()) {
       return Promise.resolve({ data: [] });
     }
-    return api.get('/v1/accounts/org/users/', { params });
+    try {
+      return await api.get('/v1/accounts/org/users/', { params });
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.get('/v1/auth/users/', { params });
+      }
+      throw err;
+    }
   },
-  create: (data) => api.post('/v1/accounts/org/users/', data),
-  update: (id, data) => api.patch(`/v1/accounts/org/users/${id}/`, data),
-  delete: (id) => api.delete(`/v1/accounts/org/users/${id}/`),
-  toggleStatus: (id) => api.post(`/v1/accounts/org/users/${id}/toggle-status/`),
-  setRole: (id, role) => api.post(`/v1/accounts/org/users/${id}/set-role/`, { role }),
+  create: async (data) => {
+    try {
+      return await api.post('/v1/accounts/org/users/', data);
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.post('/v1/auth/users/', data);
+      }
+      throw err;
+    }
+  },
+  update: async (id, data) => {
+    try {
+      return await api.patch(`/v1/accounts/org/users/${id}/`, data);
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.patch(`/v1/auth/users/${id}/`, data);
+      }
+      throw err;
+    }
+  },
+  delete: async (id) => {
+    try {
+      return await api.delete(`/v1/accounts/org/users/${id}/`);
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.delete(`/v1/auth/users/${id}/`);
+      }
+      throw err;
+    }
+  },
+  toggleStatus: async (id) => {
+    try {
+      return await api.post(`/v1/accounts/org/users/${id}/toggle-status/`);
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.post(`/v1/auth/users/${id}/toggle_status/`);
+      }
+      throw err;
+    }
+  },
+  setRole: async (id, role) => {
+    try {
+      return await api.post(`/v1/accounts/org/users/${id}/set-role/`, { role });
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.post(`/v1/auth/users/${id}/set_role/`, { role });
+      }
+      throw err;
+    }
+  },
   myTeam: () => api.get('/v1/accounts/me/team/'),
 };
 

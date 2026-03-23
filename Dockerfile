@@ -1,27 +1,17 @@
-# ── Stage 1: build ──────────────────────────────────────────────
-FROM node:20-alpine AS builder
-
+FROM node:20-alpine AS build
 WORKDIR /app
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=$VITE_API_URL
 
 COPY package*.json ./
-RUN npm ci --silent
+RUN npm ci
 
 COPY . .
-
-# Передаём build-аргументы как env-переменные Vite
-ARG VITE_API_URL
-ARG VITE_SENTRY_DSN
-ENV VITE_API_URL=$VITE_API_URL
-ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN
-
 RUN npm run build
 
-# ── Stage 2: serve ───────────────────────────────────────────────
-FROM nginx:1.27-alpine
-
-COPY --from=builder /app/dist /usr/share/nginx/html
+FROM nginx:alpine
+# For Vite output use /dist. For CRA it would be /build.
+COPY --from=build /app/dist /usr/share/nginx/html
+# SPA routing: all paths serve index.html (needed for React Router on direct URL access)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]

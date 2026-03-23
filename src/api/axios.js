@@ -130,6 +130,50 @@ const api = axios.create({
   timeout: 15000,
 });
 
+// Shared refresh promise — prevents concurrent 401s from each triggering
+// their own refresh request (which causes a race condition when refresh
+// tokens are rotated or when the backend issues single-use tokens).
+let _refreshPromise = null;
+
+function clearStoredTokens() {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('onboarding_access_token');
+}
+
+export async function refreshAccessTokenShared(refreshToken, options = {}) {
+  const refresh = String(refreshToken || '').trim();
+  if (!refresh) {
+    throw new Error('Missing refresh token');
+  }
+
+  if (!_refreshPromise) {
+    _refreshPromise = axios
+      .post(`${BASE_URL}/auth/token/refresh/`, { refresh }, { withCredentials: true })
+      .then(({ data }) => {
+        const nextAccess = data?.access || data?.access_token;
+        if (!nextAccess) {
+          throw new Error('No access token in refresh response');
+        }
+        localStorage.setItem('access_token', nextAccess);
+        localStorage.setItem('onboarding_access_token', nextAccess);
+        return nextAccess;
+      })
+      .catch((err) => {
+        clearStoredTokens();
+        if (!options?.suppressRedirect && typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        throw err;
+      })
+      .finally(() => {
+        _refreshPromise = null;
+      });
+  }
+
+  return _refreshPromise;
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -160,15 +204,11 @@ api.interceptors.response.use(
       const refresh = localStorage.getItem('refresh_token');
       if (refresh) {
         try {
-          const { data } = await axios.post(`${BASE_URL}/auth/token/refresh/`, { refresh });
-          localStorage.setItem('access_token', data.access);
+          const newToken = await refreshAccessTokenShared(refresh);
           original.headers = original.headers || {};
-          original.headers.Authorization = `Bearer ${data.access}`;
+          original.headers.Authorization = `Bearer ${newToken}`;
           return api(original);
         } catch {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
-          window.location.href = '/login';
           return Promise.reject(error);
         }
       }

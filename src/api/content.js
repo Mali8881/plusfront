@@ -12,7 +12,17 @@ export const newsAPI = {
 
 export const regulationsAPI = {
   // list uses compat layer (GET only) — works fine for user reading
-  list: (params) => api.get('/content/regulations/', { params }),
+  list: async (params) => {
+    try {
+      return await api.get('/v1/regulations/', { params });
+    } catch (err) {
+      const status = Number(err?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        return api.get('/content/regulations/', { params });
+      }
+      throw err;
+    }
+  },
   detail: (id) => api.get(`/v1/regulations/${id}/`),
   // admin CRUD uses the real v1 regulations admin endpoint
   create: (data) => api.post('/v1/regulations/admin/', data),
@@ -29,6 +39,11 @@ export const regulationsAPI = {
   // read-report endpoint does not exist in backend — fall back to sendFeedback
   submitReadReport: (id, data) => api.post(`/v1/regulations/${id}/feedback/`, data),
   acknowledge: (id) => api.post(`/v1/regulations/${id}/acknowledge/`),
+};
+
+export const userLessonsAPI = {
+  list: () => api.get('/v1/content/user-lessons/'),
+  update: (id, note) => api.patch(`/v1/content/user-lessons/${id}/`, { note }),
 };
 
 export const instructionsAPI = {
@@ -80,10 +95,12 @@ export const schedulesAPI = {
 
 export const attendanceAPI = {
   getMy: (params) => api.get('/v1/attendance/my/', { params }),
+  mySession: () => api.get('/v1/attendance/my/session/'),
   getTeam: (params) => api.get('/v1/attendance/team/', { params }),
   checkinsReport: (params) => api.get('/v1/attendance/checkins-report/', { params }),
   mark: (data) => api.post('/v1/attendance/mark/', data),
   officeCheckIn: (data) => api.post('/v1/attendance/check-in/', data),
+  officeCheckOut: (data) => api.post('/v1/attendance/check-out/', data || {}),
 };
 
 export const feedbackAPI = {
@@ -93,20 +110,87 @@ export const feedbackAPI = {
   delete: (id) => api.delete(`/v1/content/admin/feedback/${id}/`),
 };
 
+export const coursesAPI = {
+  menuAccess: () => api.get('/v1/content/courses/menu-access/'),
+  available: () => api.get('/v1/content/courses/available/'),
+  my: () => api.get('/v1/content/courses/my/'),
+  selfEnroll: (course_id) => api.post('/v1/content/courses/self-enroll/', { course_id }),
+  accept: (enrollment_id) => api.post('/v1/content/courses/accept/', { enrollment_id }),
+  start: (enrollment_id) => api.post('/v1/content/courses/start/', { enrollment_id }),
+  progress: (enrollment_id, progress_percent) =>
+    api.post('/v1/content/courses/progress/', { enrollment_id, progress_percent }),
+};
+
+export const coursesAdminAPI = {
+  list: () => api.get('/v1/content/admin/courses/'),
+  create: (data) => api.post('/v1/content/admin/courses/', data),
+  update: (id, data) => api.patch(`/v1/content/admin/courses/${id}/`, data),
+  delete: (id) => api.delete(`/v1/content/admin/courses/${id}/`),
+  assign: (data) => api.post('/v1/content/admin/courses/assign/', data),
+};
+
 export const auditAPI = {
   list: (params) => api.get('/core/audit/', { params }),
 };
 
 export const tasksAPI = {
-  my: () => api.get('/v1/tasks/my/'),
-  team: () => api.get('/v1/tasks/team/'),
+  my: (params) => api.get('/v1/tasks/my/', { params }),
+  team: (params) => api.get('/v1/tasks/team/', { params }),
   assignees: () => api.get('/v1/tasks/assignees/'),
+  templates: () => api.get('/v1/tasks/templates/'),
+  createTemplate: (data) => api.post('/v1/tasks/templates/', data),
+  updateTemplate: (id, data) => api.patch(`/v1/tasks/templates/${id}/`, data),
+  deleteTemplate: (id) => api.delete(`/v1/tasks/templates/${id}/`),
+  applyTemplate: (data) => api.post('/v1/tasks/templates/apply/', data),
   create: (data) => api.post('/v1/tasks/create/', data),
   detail: (id) => api.get(`/v1/tasks/${id}/`),
   update: (id, data) => api.patch(`/v1/tasks/${id}/`, data),
+  comments: (id) => api.get(`/v1/tasks/${id}/comments/`),
+  addComment: (id, data) => api.post(`/v1/tasks/${id}/comments/`, data),
+  attachments: (id) => api.get(`/v1/tasks/${id}/attachments/`),
+  uploadAttachment: (id, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post(`/v1/tasks/${id}/attachments/`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  deleteAttachment: (id, attachmentId) => api.delete(`/v1/tasks/${id}/attachments/${attachmentId}/`),
+  history: (id) => api.get(`/v1/tasks/${id}/history/`),
   move: (id, column_id) => api.patch(`/v1/tasks/${id}/move/`, { column_id }),
   dailyReports: (params) => api.get('/v1/reports/employee/daily/', { params }),
   submitDailyReport: (data) => api.post('/v1/reports/employee/daily/', data),
+  reviewDailyReport: (id, data) => api.post(`/v1/reports/employee/daily/${id}/review/`, data),
+  analyzeReport: (id) => api.post(`/v1/reports/employee/daily/${id}/analyze/`),
+};
+
+export const pulseAPI = {
+  submit: (data) => api.post('/v1/pulse/', data),
+  my: () => api.get('/v1/pulse/my/'),
+  team: () => api.get('/v1/pulse/team/'),
+};
+
+export const wikiAPI = {
+  // Официальная KB
+  kbList: (params) => api.get('/v1/kb/', { params }),
+  kbDetail: (id) => api.get(`/v1/kb/${id}/`),
+  // UserContent
+  list: (params) => api.get('/v1/kb/wiki/', { params }),
+  my: () => api.get('/v1/kb/wiki/my/'),
+  create: (data) => api.post('/v1/kb/wiki/', data),
+  detail: (id) => api.get(`/v1/kb/wiki/${id}/`),
+  update: (id, data) => api.patch(`/v1/kb/wiki/${id}/`, data),
+  remove: (id) => api.delete(`/v1/kb/wiki/${id}/`),
+  submit: (id) => api.post(`/v1/kb/wiki/${id}/submit/`),
+  moderate: (id, data) => api.post(`/v1/kb/wiki/${id}/moderate/`, data),
+  moderationQueue: () => api.get('/v1/kb/wiki/moderation/'),
+  // FailLibrary
+  fails: (params) => api.get('/v1/kb/fails/', { params }),
+  failsQueue: () => api.get('/v1/kb/fails/queue/'),
+  submitFail: (data) => api.post('/v1/kb/fails/', data),
+  moderateFail: (id, data) => api.post(`/v1/kb/fails/${id}/moderate/`, data),
+  // Categories
+  categories: () => api.get('/v1/kb/admin/categories/'),
 };
 
 export const companyAPI = {
@@ -118,6 +202,20 @@ export const notificationsAPI = {
   list: (params = {}) => api.get('/v1/common/notifications/', { params: { lang: getStoredLocale(), ...params } }),
   markRead: (id) => api.patch(`/v1/common/notifications/${id}/read/`, null, { params: { lang: getStoredLocale() } }),
   markAllRead: () => api.patch('/v1/common/notifications/read-all/', null, { params: { lang: getStoredLocale() } }),
+};
+
+export const gamificationAPI = {
+  my: () => api.get('/v1/gamification/my/'),
+};
+
+export const metricsAPI = {
+  my: () => api.get('/v1/metrics/'),
+  team: () => api.get('/v1/metrics/team/'),
+  dau: () => api.get('/v1/metrics/dau/'),
+  snapshots: (params) => api.get('/v1/metrics/snapshots/', { params }),
+  risks: (params) => api.get('/v1/metrics/risks/', { params }),
+  resolveRisk: (id, data) => api.patch(`/v1/metrics/risks/${id}/`, data),
+  onboardingKpi: () => api.get('/v1/metrics/onboarding-kpi/'),
 };
 
 

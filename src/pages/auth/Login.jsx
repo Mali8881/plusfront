@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { Eye, EyeOff, User } from 'lucide-react';
-import { pathFromLanding, landingFromRole } from '../../utils/roles';
 
 const ROLE_COLORS = {
   intern: { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
   employee: { bg: '#F0FDF4', color: '#16A34A', border: '#BBF7D0' },
   projectmanager: { bg: '#FAF5FF', color: '#7C3AED', border: '#DDD6FE' },
+  teamlead: { bg: '#FAF5FF', color: '#6D28D9', border: '#DDD6FE' },
   admin: { bg: '#FFF7ED', color: '#EA580C', border: '#FED7AA' },
   administrator: { bg: '#FFF7ED', color: '#EA580C', border: '#FED7AA' },
   systemadmin: { bg: '#ECFEFF', color: '#0E7490', border: '#A5F3FC' },
@@ -15,11 +15,13 @@ const ROLE_COLORS = {
 };
 
 const ROLE_ICONS = {
-  intern: '🎓',
-  employee: '💼',
-  projectmanager: '📋',
-  admin: '🛡️',
-  superadmin: '👑',
+  intern: 'IN',
+  employee: 'EM',
+  projectmanager: 'PM',
+  teamlead: 'TL',
+  admin: 'DH',
+  administrator: 'AD',
+  superadmin: 'SA',
 };
 
 const FALLBACK = { bg: '#F9FAFB', color: '#6B7280', border: '#E5E7EB' };
@@ -27,29 +29,32 @@ const FALLBACK = { bg: '#F9FAFB', color: '#6B7280', border: '#E5E7EB' };
 export default function Login() {
   const { login, loading, mockUsers = [], USE_MOCK } = useAuth();
   const navigate = useNavigate();
-  const [loginVal, setLoginVal] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
 
-  const doLogin = async (loginStr, passStr) => {
+  const doLogin = async (identity, secret) => {
     setError('');
     try {
-      const u = await login(loginStr, passStr);
-      if (['department_head', 'admin', 'administrator', 'superadmin'].includes(String(u.role || '').toLowerCase())) navigate('/admin/overview');
-      else navigate('/dashboard');
+      const u = await login(identity, secret);
+      if (['department_head', 'admin', 'administrator', 'superadmin', 'systemadmin'].includes(String(u.role || '').toLowerCase())) {
+        navigate('/admin/overview');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
-      setError(err.message || 'Неверный логин или пароль');
+      setError(err.message || 'Не удалось войти. Проверьте email и пароль.');
     }
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!loginVal || !password) {
-      setError('Заполните все поля');
+    if (!email.trim() || !password) {
+      setError('Заполните email и пароль.');
       return;
     }
-    doLogin(loginVal, password);
+    doLogin(email.trim(), password);
   };
 
   return (
@@ -64,24 +69,24 @@ export default function Login() {
           <span className="auth-logo-text">В Плюсе</span>
         </div>
 
-        <h2 style={{ textAlign: 'center', fontSize: 20, fontWeight: 700, color: 'var(--gray-900)', marginBottom: 4, marginTop: 8 }}>
-          Войти в аккаунт
+        <h2 style={{ textAlign: 'center', fontSize: 22, fontWeight: 700, color: 'var(--gray-900)', marginBottom: 6, marginTop: 8 }}>
+          Вход в систему
         </h2>
-        <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--gray-500)', marginBottom: 24 }}>
-          Корпоративная платформа «В Плюсе»
+        <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--gray-500)', marginBottom: 24, lineHeight: 1.6 }}>
+          Корпоративная платформа для онбординга, задач и рабочего дня.
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="form-group">
-            <label className="form-label">Логин</label>
+            <label className="form-label">Email</label>
             <div style={{ position: 'relative' }}>
-              <User size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
+              <Mail size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
               <input
                 className="form-input"
-                type="text"
-                placeholder="Введите логин"
-                value={loginVal}
-                onChange={(e) => setLoginVal(e.target.value)}
+                type="email"
+                placeholder="name@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 style={{ paddingLeft: 32 }}
                 autoComplete="username"
               />
@@ -91,13 +96,14 @@ export default function Login() {
           <div className="form-group">
             <label className="form-label">Пароль</label>
             <div style={{ position: 'relative' }}>
+              <Lock size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
               <input
                 className="form-input"
                 type={showPass ? 'text' : 'password'}
                 placeholder="Введите пароль"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                style={{ paddingRight: 40 }}
+                style={{ paddingLeft: 32, paddingRight: 40 }}
                 autoComplete="current-password"
               />
               <button
@@ -110,18 +116,31 @@ export default function Login() {
             </div>
           </div>
 
-          {error && (
+          <div className="alert alert-warning" style={{ fontSize: 12 }}>
+            После 5 неудачных попыток вход временно блокируется.
+          </div>
+
+          {error ? (
             <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 'var(--radius)', padding: '8px 12px', color: 'var(--danger)', fontSize: 13, textAlign: 'center' }}>
               {error}
             </div>
-          )}
+          ) : null}
 
           <button className="btn btn-primary btn-lg w-full" type="submit" disabled={loading} style={{ justifyContent: 'center' }}>
             {loading ? 'Вход...' : 'Войти'}
           </button>
+
+          <div style={{ textAlign: 'center', marginTop: 4 }}>
+            <span
+              style={{ fontSize: 13, color: 'var(--primary)', cursor: 'pointer', fontWeight: 600 }}
+              onClick={() => navigate('/forgot-password')}
+            >
+              Забыли пароль?
+            </span>
+          </div>
         </form>
 
-        {USE_MOCK && (
+        {USE_MOCK ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
               <div style={{ flex: 1, height: 1, background: 'var(--gray-200)' }} />
@@ -132,7 +151,7 @@ export default function Login() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {mockUsers.map((u) => {
                 const c = ROLE_COLORS[u.role] || FALLBACK;
-                const icon = ROLE_ICONS[u.role] || '👤';
+                const icon = ROLE_ICONS[u.role] || 'U';
                 return (
                   <button
                     key={u.id}
@@ -151,7 +170,21 @@ export default function Login() {
                       width: '100%',
                     }}
                   >
-                    <span style={{ fontSize: 20, flexShrink: 0 }}>{icon}</span>
+                    <span style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: `${c.color}20`,
+                      color: c.color,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      flexShrink: 0,
+                    }}>
+                      {icon}
+                    </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--gray-800)', marginBottom: 1 }}>{u.name}</div>
                       <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{u.position_name || u.position || ''}</div>
@@ -163,14 +196,10 @@ export default function Login() {
                 );
               })}
             </div>
-
-            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--gray-400)', textAlign: 'center' }}>
-              Пароль для всех аккаунтов: <b>1234</b>
-            </div>
           </>
-        )}
+        ) : null}
 
-        <div className="auth-footer">© 2025 В Плюсе. Внутренняя корпоративная платформа.</div>
+        <div className="auth-footer">© 2026 В Плюсе. Внутренняя корпоративная платформа.</div>
       </div>
     </div>
   );

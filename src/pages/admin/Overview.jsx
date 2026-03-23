@@ -76,8 +76,9 @@ function normalizeUser(raw) {
 const roleTitle = (role) => {
   if (role === 'superadmin') return 'Суперадминистратор';
   if (role === 'systemadmin') return 'Системный администратор';
-  if (role === 'administrator' || role === 'admin') return 'Администратор';
-  if (role === 'projectmanager') return 'Проект-менеджер';
+  if (role === 'administrator') return 'Администратор';
+  if (role === 'department_head' || role === 'admin') return 'Руководитель подразделения';
+  if (role === 'projectmanager' || role === 'teamlead') return 'Тимлид / Менеджер проекта';
   if (role === 'intern') return 'Стажер';
   return 'Сотрудник';
 };
@@ -88,6 +89,8 @@ export default function AdminOverview() {
   const [error, setError] = useState('');
   const [selectedAdminId, setSelectedAdminId] = useState('');
   const [moduleState, setModuleState] = useState({});
+  const [reports, setReports] = useState([]);
+  const [feedback, setFeedback] = useState([]);
 
   useEffect(() => {
     let mounted = true;
@@ -115,6 +118,8 @@ export default function AdminOverview() {
     };
   }, []);
 
+  const activeCount = users.filter((u) => u.is_active).length;
+  const internCount = users.filter((u) => u.role === 'intern').length;
   const stats = useMemo(() => {
     const activeUsers = users.filter((u) => u.is_active).length;
     const interns = users.filter((u) => u.role === 'intern').length;
@@ -123,6 +128,28 @@ export default function AdminOverview() {
     const newFeedback = feedback.filter((f) => f.status === 'new').length;
     return { activeUsers, interns, admins, sentReports, newFeedback };
   }, [users, reports, feedback]);
+
+  const admins = useMemo(() => users.filter((u) => isAdminRole(u.role)), [users]);
+
+  useEffect(() => {
+    if (!admins.length) {
+      setSelectedAdminId('');
+      return;
+    }
+    if (!selectedAdminId || !admins.some((a) => String(a.id) === String(selectedAdminId))) {
+      setSelectedAdminId(String(admins[0].id));
+    }
+  }, [admins, selectedAdminId]);
+
+  const selectedAdmin = useMemo(
+    () => admins.find((a) => String(a.id) === String(selectedAdminId)),
+    [admins, selectedAdminId]
+  );
+
+  const visibleModules = useMemo(() => {
+    if (selectedAdmin?.role === 'superadmin') return MODULES;
+    return MODULES.filter((m) => m.id !== 'system');
+  }, [selectedAdmin]);
 
   return (
     <MainLayout title="Админ-панель">
@@ -147,27 +174,39 @@ export default function AdminOverview() {
         <div className="card">
           <div className="card-header">
             <span className="card-title">Ролевой доступ (RBAC)</span>
-            <span className="badge badge-gray">4 роли</span>
+            <span className="badge badge-gray">6 ролей</span>
           </div>
           <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {[
               {
                 name: 'Стажер',
-                desc: 'Онбординг, регламенты, отчеты, профиль и инструкция.',
-                badge: 'Только просмотр + свои отчеты',
+                desc: 'Адаптация, обучение, последовательный онбординг, свои материалы и отчеты.',
+                badge: 'Только свои учебные данные',
                 color: '#D1FAE5',
               },
               {
-                name: 'Администратор',
-                desc: 'Операционная работа с контентом, онбордингом и пользователями.',
-                badge: 'Набор модулей по правам',
+                name: 'Сотрудник',
+                desc: 'Личные задачи, attendance, weekly plans, корпоративные материалы и свои метрики.',
+                badge: 'Только личные рабочие данные',
                 color: '#DBEAFE',
               },
               {
-                name: 'Системный администратор',
-                desc: 'Админские разделы + системные задачи.',
-                badge: 'Admin-like доступ',
-                color: '#E0E7FF',
+                name: 'Тимлид / Менеджер проекта',
+                desc: 'Контроль команды, ревью отчетов подчиненных и мониторинг прогресса.',
+                badge: 'Управление только своей командой',
+                color: '#DBEAFE',
+              },
+              {
+                name: 'Руководитель подразделения',
+                desc: 'Сводная аналитика, согласования и метрики в рамках департамента.',
+                badge: 'Доступ в рамках подразделения',
+                color: '#FEE2E2',
+              },
+              {
+                name: 'Администратор',
+                desc: 'Управление контентом, оргструктурой, онбордингом и operational-модулями.',
+                badge: 'Без security и roles',
+                color: '#E0F2FE',
               },
               {
                 name: 'Суперадминистратор',
@@ -250,3 +289,4 @@ export default function AdminOverview() {
     </MainLayout>
   );
 }
+

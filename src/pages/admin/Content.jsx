@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
-import { instructionsAPI, newsAPI, regulationsAPI } from '../../api/content';
+import { coursesAdminAPI, instructionsAPI, newsAPI, regulationsAPI } from '../../api/content';
+import { departmentsAPI } from '../../api/auth';
 
 const emptyNews = { title: '', full_text: '', language: 'ru' };
 const createEmptyQuizQuestion = () => ({ question: '', options: ['', ''], correct_answer: '' });
@@ -14,12 +15,15 @@ const emptyReg = {
   quiz_questions: [],
 };
 const emptyInstruction = { language: 'ru', type: 'text', content: '', is_active: true };
+const emptyCourse = { title: '', description: '', visibility: 'public', department: '', is_active: true };
 
 export default function AdminContent() {
   const [tab, setTab] = useState('news');
   const [news, setNews] = useState([]);
   const [regs, setRegs] = useState([]);
   const [instructions, setInstructions] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -34,18 +38,38 @@ export default function AdminContent() {
   const [instructionForm, setInstructionForm] = useState(emptyInstruction);
   const [instructionEditId, setInstructionEditId] = useState(null);
 
+  const [courseForm, setCourseForm] = useState(emptyCourse);
+  const [courseEditId, setCourseEditId] = useState(null);
+  const [assignCourseId, setAssignCourseId] = useState('');
+  const [assignToAll, setAssignToAll] = useState(true);
+  const [assignUserIds, setAssignUserIds] = useState('');
+
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const [newsRes, regRes, instructionsRes] = await Promise.all([
+      const [newsRes, regRes, instructionsRes, coursesRes, departmentsRes] = await Promise.all([
         newsAPI.list(),
         regulationsAPI.list(),
         instructionsAPI.list(),
+        coursesAdminAPI.list(),
+        departmentsAPI.list(),
       ]);
       setNews(Array.isArray(newsRes.data) ? newsRes.data : []);
       setRegs(Array.isArray(regRes.data) ? regRes.data : []);
       setInstructions(Array.isArray(instructionsRes.data) ? instructionsRes.data : []);
+      const coursesData = Array.isArray(coursesRes.data)
+        ? coursesRes.data
+        : Array.isArray(coursesRes.data?.results)
+          ? coursesRes.data.results
+          : [];
+      setCourses(coursesData);
+      const departmentsData = Array.isArray(departmentsRes.data)
+        ? departmentsRes.data
+        : Array.isArray(departmentsRes.data?.results)
+          ? departmentsRes.data.results
+          : [];
+      setDepartments(departmentsData);
     } catch (e) {
       setError(e.response?.data?.detail || 'Не удалось загрузить контент.');
     } finally {
@@ -61,7 +85,8 @@ export default function AdminContent() {
     news: news.length,
     regs: regs.length,
     instructions: instructions.length,
-  }), [news, regs, instructions]);
+    courses: courses.length,
+  }), [news, regs, instructions, courses]);
 
   const saveNews = async () => {
     if (!newsForm.title.trim()) return;
@@ -150,6 +175,60 @@ export default function AdminContent() {
     }
   };
 
+  const saveCourse = async () => {
+    const title = String(courseForm.title || '').trim();
+    if (!title) return;
+
+    const visibility = String(courseForm.visibility || 'public');
+    const department = visibility === 'department' ? (courseForm.department || null) : null;
+
+    const payload = {
+      title,
+      description: courseForm.description || '',
+      visibility,
+      department,
+      is_active: Boolean(courseForm.is_active),
+    };
+
+    try {
+      if (courseEditId) await coursesAdminAPI.update(courseEditId, payload);
+      else await coursesAdminAPI.create(payload);
+      setCourseForm(emptyCourse);
+      setCourseEditId(null);
+      await load();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось сохранить курс.');
+    }
+  };
+
+  const assignCourse = async () => {
+    const courseId = String(assignCourseId || '').trim();
+    if (!courseId) {
+      setError('Выберите курс для назначения.');
+      return;
+    }
+
+    const rawIds = String(assignUserIds || '');
+    const user_ids = rawIds
+      .split(/[,\\s]+/)
+      .map((x) => Number(String(x).trim()))
+      .filter((x) => Number.isFinite(x) && x > 0);
+
+    const payload = assignToAll ? { course_id: courseId, assign_to_all: true } : { course_id: courseId, user_ids };
+    if (!assignToAll && user_ids.length === 0) {
+      setError('Укажите user_ids или включите "назначить всем".');
+      return;
+    }
+
+    try {
+      await coursesAdminAPI.assign(payload);
+      setAssignUserIds('');
+      await load();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось назначить курс.');
+    }
+  };
+
   const updateQuizQuestion = (qIdx, patch) => {
     setRegForm((f) => ({
       ...f,
@@ -183,7 +262,7 @@ export default function AdminContent() {
 
       {!loading && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 }}>
             <Stat title="Новости" value={stats.news} />
             <Stat title="Регламенты" value={stats.regs} />
             <Stat title="Инструкции" value={stats.instructions} />

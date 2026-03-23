@@ -13,9 +13,10 @@ import { regulationsAPI } from '../../api/content';
 const ROLE_LABELS = {
   intern: 'Стажер',
   employee: 'Сотрудник',
-  projectmanager: 'Тимлид',
-  department_head: 'Рук. отдела',
-  admin: 'Админ',
+  teamlead: 'Тимлид',
+  projectmanager: 'Тимлид / Менеджер проекта',
+  department_head: 'Руководитель подразделения',
+  admin: 'Руководитель подразделения',
   administrator: 'Администратор',
   superadmin: 'Суперадмин',
 };
@@ -23,14 +24,16 @@ const ROLE_LABELS = {
 const ROLE_BADGE = {
   intern:         { bg: '#EFF6FF', color: '#2563EB' },
   employee:       { bg: '#F0FDF4', color: '#16A34A' },
+  teamlead:       { bg: '#FAF5FF', color: '#7C3AED' },
   projectmanager: { bg: '#FAF5FF', color: '#7C3AED' },
-  department_head:{ bg: '#FFF7ED', color: '#EA580C' },
+  department_head:{ bg: '#FFF7ED', color: '#C2410C' },
   admin:          { bg: '#FFF7ED', color: '#EA580C' },
-  administrator:  { bg: '#FFF7ED', color: '#EA580C' },
+  administrator:  { bg: '#E0F2FE', color: '#0369A1' },
   superadmin:     { bg: '#FFF1F2', color: '#BE123C' },
 };
 
 const PRIVILEGED_ROLES = new Set(['department_head', 'admin', 'administrator', 'superadmin']);
+const MANAGER_ROLES = new Set(['teamlead', 'projectmanager', 'department_head', 'admin']);
 
 const EMPTY_FORM = {
   name: '',
@@ -67,9 +70,10 @@ function splitName(fullName) {
 
 function fixedSubdivisionLabelByRole(role) {
   const map = {
+    teamlead: 'Вся команда',
     projectmanager: 'Вся команда',
-    department_head: 'Весь отдел',
-    admin: 'Вся организация',
+    department_head: 'Весь департамент',
+    admin: 'Весь департамент',
     administrator: 'Вся организация',
     superadmin: 'Вся система',
   };
@@ -114,8 +118,8 @@ export default function AdminUsers() {
 
   const myRole = String(user?.role || '').toLowerCase();
   const isSuperOrAdmin = isSuperAdmin || myRole === 'administrator';
-  const isDepartmentHead = myRole === 'department_head';
-  const canAssignAdminRoles = isSuperOrAdmin || myRole === 'admin';
+  const isDepartmentHead = myRole === 'department_head' || myRole === 'admin';
+  const canAssignAdminRoles = isSuperOrAdmin;
   const ownDepartmentId = user?.department ? String(user.department) : '';
 
   const canEdit = (target) => {
@@ -220,7 +224,7 @@ export default function AdminUsers() {
     let departmentPayload = form.department || null;
     if (isDepartmentHead) {
       if (form.role === 'intern') departmentPayload = null;
-      else if (form.role === 'employee' || form.role === 'projectmanager') departmentPayload = ownDepartmentId || null;
+      else if (form.role === 'employee' || form.role === 'projectmanager' || form.role === 'teamlead') departmentPayload = ownDepartmentId || null;
     }
     const supportsSubdivision = form.role === 'intern' || form.role === 'employee';
     const payload = {
@@ -231,7 +235,7 @@ export default function AdminUsers() {
       department: departmentPayload,
       position: null,
       subdivision: supportsSubdivision ? (form.subdivision || null) : null,
-      manager: form.role === 'projectmanager' ? null : (form.manager || null),
+      manager: (form.role === 'projectmanager' || form.role === 'teamlead') ? null : (form.manager || null),
       role: form.role,
       notes: form.notes || '',
     };
@@ -300,18 +304,27 @@ export default function AdminUsers() {
 
   const managerOptions = useMemo(() => {
     const effectiveDepartment = isDepartmentHead
-      ? ((form.role === 'employee' || form.role === 'projectmanager') ? ownDepartmentId : '')
+      ? ((form.role === 'employee' || form.role === 'projectmanager' || form.role === 'teamlead') ? ownDepartmentId : '')
       : form.department;
-    return users.filter((u) => {
-      if (u.role !== 'projectmanager') return false;
+    const options = users.filter((u) => {
+      if (!MANAGER_ROLES.has(u.role)) return false;
       if (!effectiveDepartment) return true;
       return Number(u.departmentId) === Number(effectiveDepartment);
     });
-  }, [users, form.department, form.role, isDepartmentHead, ownDepartmentId]);
+
+    if (editUser?.managerId) {
+      const currentManager = users.find((u) => Number(u.id) === Number(editUser.managerId));
+      if (currentManager && !options.some((u) => Number(u.id) === Number(currentManager.id))) {
+        options.unshift(currentManager);
+      }
+    }
+
+    return options;
+  }, [users, form.department, form.role, isDepartmentHead, ownDepartmentId, editUser]);
 
   const subdivisionOptions = useMemo(() => {
     const effectiveDepartment = isDepartmentHead
-      ? ((form.role === 'employee' || form.role === 'projectmanager') ? ownDepartmentId : (form.department || ownDepartmentId))
+      ? ((form.role === 'employee' || form.role === 'projectmanager' || form.role === 'teamlead') ? ownDepartmentId : (form.department || ownDepartmentId))
       : form.department;
     if (!effectiveDepartment) return subdivisions;
     return subdivisions.filter((s) => Number(s.department_id) === Number(effectiveDepartment));
@@ -353,7 +366,7 @@ export default function AdminUsers() {
         </div>
       ) : null}
 
-      {(user?.role === 'admin' || user?.role === 'administrator' || user?.role === 'superadmin') ? (
+      {(user?.role === 'admin' || user?.role === 'department_head' || user?.role === 'administrator' || user?.role === 'superadmin') ? (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-header">
             <span className="card-title">Заявки стажеров на завершение</span>
@@ -525,7 +538,7 @@ export default function AdminUsers() {
                     className="form-select"
                     value={
                       isDepartmentHead
-                        ? ((form.role === 'employee' || form.role === 'projectmanager') ? ownDepartmentId : '')
+                        ? ((form.role === 'employee' || form.role === 'projectmanager' || form.role === 'teamlead') ? ownDepartmentId : '')
                         : form.department
                     }
                     onChange={(e) => setForm((prev) => ({ ...prev, department: e.target.value }))}
@@ -564,16 +577,15 @@ export default function AdminUsers() {
                       setForm((prev) => ({
                         ...prev,
                         role: nextRole,
-                        manager: nextRole === 'projectmanager' ? '' : prev.manager,
+                        manager: (nextRole === 'projectmanager' || nextRole === 'teamlead') ? '' : prev.manager,
                         subdivision: (nextRole === 'intern' || nextRole === 'employee') ? prev.subdivision : '',
                       }));
                     }}
                   >
                     <option value="intern">Стажер</option>
                     <option value="employee">Сотрудник</option>
-                    <option value="projectmanager">Тимлид</option>
-                    {canAssignAdminRoles ? <option value="department_head">Рук. отдела</option> : null}
-                    {canAssignAdminRoles ? <option value="admin">Админ</option> : null}
+                    <option value="projectmanager">Тимлид / Менеджер проекта</option>
+                    {canAssignAdminRoles ? <option value="admin">Руководитель подразделения</option> : null}
                     {isSuperOrAdmin ? <option value="administrator">Администратор</option> : null}
                     {isSuperAdmin ? <option value="superadmin">Суперадмин</option> : null}
                   </select>
@@ -585,16 +597,18 @@ export default function AdminUsers() {
               </div>
               <div className="grid-2" style={{ marginTop: 10 }}>
                 <div className="form-group">
-                  <label className="form-label">Тимлид (руководитель)</label>
+                  <label className="form-label">Руководитель</label>
                   <select
                     className="form-select"
                     value={form.manager}
                     onChange={(e) => setForm((prev) => ({ ...prev, manager: e.target.value }))}
-                    disabled={form.role === 'projectmanager'}
+                    disabled={form.role === 'projectmanager' || form.role === 'teamlead'}
                   >
                     <option value="">— не выбрано —</option>
                     {managerOptions.map((m) => (
-                      <option key={m.id} value={m.id}>{m.name}</option>
+                      <option key={m.id} value={m.id}>
+                        {m.name} {ROLE_LABELS[m.role] ? `(${ROLE_LABELS[m.role]})` : ''}
+                      </option>
                     ))}
                   </select>
                 </div>

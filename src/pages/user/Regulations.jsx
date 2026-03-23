@@ -5,6 +5,7 @@ import { regulationsAPI } from '../../api/content';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 import { isInternRole } from '../../utils/roles';
+import LockedVideoPlayer, { isLockedVideoCandidate } from '../../components/LockedVideoPlayer';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
 let BACKEND_ORIGIN = 'http://127.0.0.1:8000';
@@ -76,6 +77,21 @@ function normalizeReg(raw = {}) {
   const type = typeRaw.includes('link') ? 'link' : 'file';
   const openUrl = toOpenUrl(raw);
 
+  const requiresQuiz = Boolean(raw.requires_quiz ?? raw.quiz_required ?? raw.quizRequired);
+  const hasPassedQuiz = Boolean(raw.has_passed_quiz ?? raw.quiz_passed ?? raw.quizPassed);
+  let quizQuestions = Array.isArray(raw.quiz_questions) ? raw.quiz_questions : [];
+
+  // Legacy single-question format (compat API).
+  const legacyQuestion = raw.quiz_question || raw.quiz?.question || '';
+  const legacyOptions = Array.isArray(raw.quiz_options)
+    ? raw.quiz_options
+    : Array.isArray(raw.quiz?.options)
+      ? raw.quiz.options
+      : [];
+  if (!quizQuestions.length && (legacyQuestion || legacyOptions.length)) {
+    quizQuestions = [{ question: legacyQuestion || 'Вопрос', options: legacyOptions }];
+  }
+
   return {
     id: raw.id,
     title: raw.title || raw.name || raw.file_name || `Регламент #${raw.id}`,
@@ -89,14 +105,11 @@ function normalizeReg(raw = {}) {
     acknowledgedAt: formatDate(raw.acknowledged_at),
     isOverdue: Boolean(raw.is_overdue),
 
-    quizRequired: Boolean(raw.quiz_required),
-    quizPassed: Boolean(raw.quiz_passed),
-    quizQuestion: raw.quiz_question || raw.quiz?.question || '',
-    quizOptions: Array.isArray(raw.quiz_options)
-      ? raw.quiz_options
-      : Array.isArray(raw.quiz?.options)
-        ? raw.quiz.options
-        : [],
+    quizRequired: requiresQuiz,
+    quizPassed: hasPassedQuiz,
+    quizQuestions,
+    quizQuestion: legacyQuestion,
+    quizOptions: legacyOptions,
 
     reportRequiredToday: Boolean(raw.report_required_today),
     reportSubmittedToday: Boolean(raw.report_submitted_today),
@@ -116,7 +129,7 @@ export default function Regulations() {
   const [previewDoc, setPreviewDoc] = useState(null);
 
   const [quizDoc, setQuizDoc] = useState(null);
-  const [quizAnswer, setQuizAnswer] = useState('');
+  const [quizAnswers, setQuizAnswers] = useState([]);
 
   const loadDocs = async () => {
     setLoading(true);
@@ -145,7 +158,15 @@ export default function Regulations() {
       setActionMsg(successMessage);
       await loadDocs();
     } catch (err) {
-      setActionMsg(err?.response?.data?.detail || tr('Операция не выполнена'));
+      const data = err?.response?.data || {};
+      const payload = data?.errors || data;
+      const retry = Number(payload?.retry_after_seconds || 0);
+      if (retry > 0) {
+        const minutes = Math.ceil(retry / 60);
+        setActionMsg(`${payload?.detail || tr('Повторите позже')} (${tr('через')} ${minutes} ${tr('мин')})`);
+      } else {
+        setActionMsg(data?.detail || payload?.detail || tr('Операция не выполнена'));
+      }
     } finally {
       setBusyId(null);
       setTimeout(() => setActionMsg(''), 3000);
@@ -169,12 +190,13 @@ export default function Regulations() {
   const acknowledge = async (doc) => {
     setBusyId(doc.id);
     try {
-      await regulationsAPI.acknowledge(doc.id, { acknowledged: true });
+      await regulationsAPI.acknowledge(doc.id);
       setActionMsg(tr('Прочтение отмечено'));
       await loadDocs();
       if (isIntern && doc.quizRequired && !doc.quizPassed) {
         setQuizDoc(doc);
-        setQuizAnswer('');
+        const total = Array.isArray(doc.quizQuestions) && doc.quizQuestions.length ? doc.quizQuestions.length : 1;
+        setQuizAnswers(new Array(total).fill(''));
       }
     } catch (err) {
       setActionMsg(err?.response?.data?.detail || tr('Операция не выполнена'));
@@ -207,22 +229,29 @@ export default function Regulations() {
       return;
     }
     setQuizDoc(doc);
-    setQuizAnswer('');
+    const total = Array.isArray(doc.quizQuestions) && doc.quizQuestions.length ? doc.quizQuestions.length : 1;
+    setQuizAnswers(new Array(total).fill(''));
   };
 
   const submitInternQuiz = async () => {
     if (!quizDoc) return;
-    const answer = String(quizAnswer || '').trim();
-    if (!answer) return;
+    const answers = Array.isArray(quizAnswers) ? quizAnswers.map((x) => String(x || '').trim()) : [];
+    if (!answers.length || answers.some((a) => !a)) return;
 
     await withReload(
       quizDoc.id,
-      () => regulationsAPI.submitQuiz(quizDoc.id, { answer, user_answer: answer }),
+      () => {
+        if (Array.isArray(quizDoc.quizQuestions) && quizDoc.quizQuestions.length > 1) {
+          return regulationsAPI.submitQuiz(quizDoc.id, { answers });
+        }
+        // Single-question: backend supports either `answer` or `answers`.
+        return regulationsAPI.submitQuiz(quizDoc.id, { answer: answers[0], user_answer: answers[0], answers });
+      },
       tr('Тест отправлен')
     );
 
     setQuizDoc(null);
-    setQuizAnswer('');
+    setQuizAnswers([]);
   };
 
   const submitReadReport = async (doc) => {
@@ -347,27 +376,29 @@ export default function Regulations() {
                 </button>
               </div>
             </div>
-            <div className="modal-body" style={{ flex: 1, minHeight: 0 }}>
-              {previewDoc.openUrl ? (
-                canInlinePreview(previewDoc.openUrl) ? (
-                  <iframe
-                    src={previewDoc.openUrl}
-                    title={previewDoc.title}
-                    style={{ width: '100%', height: '100%', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)' }}
-                  />
-                ) : (
-                  <div style={{ display: 'grid', gap: 12 }}>
-                    <div style={{ color: 'var(--gray-500)' }}>
-                      {tr('Предпросмотр этого формата недоступен во встроенном окне. Откройте файл в новой вкладке.')}
+              <div className="modal-body" style={{ flex: 1, minHeight: 0 }}>
+                {previewDoc.openUrl ? (
+                  isLockedVideoCandidate(previewDoc.openUrl) ? (
+                    <LockedVideoPlayer src={previewDoc.openUrl} title={previewDoc.title} />
+                  ) : canInlinePreview(previewDoc.openUrl) ? (
+                    <iframe
+                      src={previewDoc.openUrl}
+                      title={previewDoc.title}
+                      style={{ width: '100%', height: '100%', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)' }}
+                    />
+                  ) : (
+                    <div style={{ display: 'grid', gap: 12 }}>
+                      <div style={{ color: 'var(--gray-500)' }}>
+                        {tr('Предпросмотр этого формата недоступен во встроенном окне. Откройте файл в новой вкладке.')}
+                      </div>
+                      <a className="btn btn-primary btn-sm" href={previewDoc.openUrl} target="_blank" rel="noreferrer" style={{ width: 'fit-content' }}>
+                        {tr('Открыть файл')}
+                      </a>
                     </div>
-                    <a className="btn btn-primary btn-sm" href={previewDoc.openUrl} target="_blank" rel="noreferrer" style={{ width: 'fit-content' }}>
-                      {tr('Открыть файл')}
-                    </a>
-                  </div>
-                )
-              ) : (
-                <div style={{ color: 'var(--gray-500)' }}>{tr('Для этого документа не передан URL в `content/action`.')}</div>
-              )}
+                  )
+                ) : (
+                  <div style={{ color: 'var(--gray-500)' }}>{tr('Для этого документа не передан URL в `content/action`.')}</div>
+                )}
             </div>
           </div>
         </div>
@@ -383,37 +414,64 @@ export default function Regulations() {
               </button>
             </div>
             <div className="modal-body" style={{ display: 'grid', gap: 12 }}>
-              <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>
-                {quizDoc.quizQuestion || tr('Ответьте на вопрос по регламенту')}
-              </div>
-              {Array.isArray(quizDoc.quizOptions) && quizDoc.quizOptions.length > 0 ? (
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {quizDoc.quizOptions.map((opt, idx) => (
-                    <label key={`quiz-opt-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
-                      <input
-                        type="radio"
-                        name={`quiz-${quizDoc.id}`}
-                        checked={quizAnswer === String(opt)}
-                        onChange={() => setQuizAnswer(String(opt))}
-                      />
-                      <span>{String(opt)}</span>
-                    </label>
-                  ))}
+              {Array.isArray(quizDoc.quizQuestions) && quizDoc.quizQuestions.length > 0 ? (
+                <div style={{ display: 'grid', gap: 14 }}>
+                  {quizDoc.quizQuestions.map((q, qi) => {
+                    const question = String(q?.question || '').trim() || `${tr('Вопрос')} ${qi + 1}`;
+                    const options = Array.isArray(q?.options) ? q.options : [];
+                    const current = String(quizAnswers[qi] || '');
+                    return (
+                      <div key={`q-${quizDoc.id}-${qi}`} style={{ padding: 12, border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)', background: 'var(--gray-50)' }}>
+                        <div style={{ fontWeight: 700, color: 'var(--gray-900)', marginBottom: 8 }}>
+                          {qi + 1}. {question}
+                        </div>
+                        {options.length > 0 ? (
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            {options.map((opt, oi) => (
+                              <label key={`opt-${qi}-${oi}`} style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                                <input
+                                  type="radio"
+                                  name={`quiz-${quizDoc.id}-${qi}`}
+                                  checked={current === String(opt)}
+                                  onChange={() => {
+                                    const next = [...quizAnswers];
+                                    next[qi] = String(opt);
+                                    setQuizAnswers(next);
+                                  }}
+                                />
+                                <span>{String(opt)}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <input
+                            className="form-input"
+                            placeholder={tr('Введите ваш ответ')}
+                            value={current}
+                            onChange={(e) => {
+                              const next = [...quizAnswers];
+                              next[qi] = e.target.value;
+                              setQuizAnswers(next);
+                            }}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                <input
-                  className="form-input"
-                  placeholder={tr('Введите ваш ответ')}
-                  value={quizAnswer}
-                  onChange={(e) => setQuizAnswer(e.target.value)}
-                />
+                <div style={{ color: 'var(--gray-500)' }}>{tr('Вопросы теста не настроены.')}</div>
               )}
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setQuizDoc(null)}>
                 {tr('Отмена')}
               </button>
-              <button className="btn btn-primary" onClick={submitInternQuiz} disabled={!String(quizAnswer || '').trim()}>
+              <button
+                className="btn btn-primary"
+                onClick={submitInternQuiz}
+                disabled={!Array.isArray(quizAnswers) || !quizAnswers.length || quizAnswers.some((a) => !String(a || '').trim())}
+              >
                 {tr('Отправить ответ')}
               </button>
             </div>

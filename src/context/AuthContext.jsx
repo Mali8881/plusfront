@@ -1,6 +1,8 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { authAPI } from '../api/auth';
+import { refreshAccessTokenShared } from '../api/axios';
 import {
+  ROLE_LABELS,
   normalizeRole,
   isAdminRole,
   isSuperAdminRole,
@@ -18,16 +20,6 @@ const STORAGE_KEYS = {
   role: 'onboarding_role',
   landing: 'onboarding_landing',
   legacyAccess: 'onboarding_access_token',
-};
-
-const ROLE_LABELS = {
-  intern: 'Стажер',
-  employee: 'Сотрудник',
-  projectmanager: 'Проект-менеджер',
-  department_head: 'Руководитель отдела',
-  admin: 'Админ',
-  administrator: 'Администратор',
-  superadmin: 'Суперадмин',
 };
 
 let bootstrapPromise = null;
@@ -55,8 +47,11 @@ function normalizeUser(raw = {}) {
     if (!roleLabelText) return null;
     if (roleLabelText.includes('super') || roleLabelText.includes('супер')) return 'SUPER_ADMIN';
     if (roleLabelText.includes('system') || roleLabelText.includes('систем')) return 'SYSTEMADMIN';
+    if (roleLabelText.includes('administrator') || roleLabelText.includes('админист')) return 'ADMINISTRATOR';
+    if (roleLabelText.includes('department') || roleLabelText.includes('подраздел') || roleLabelText.includes('отдел')) return 'ADMIN';
     if (roleLabelText.includes('admin') || roleLabelText.includes('админ')) return 'ADMINISTRATOR';
     if (roleLabelText.includes('intern') || roleLabelText.includes('стаж')) return 'INTERN';
+    if (roleLabelText.includes('teamlead') || roleLabelText.includes('тимлид')) return 'TEAMLEAD';
     if (roleLabelText.includes('project') || roleLabelText.includes('руковод')) return 'PROJECTMANAGER';
     if (roleLabelText.includes('employee') || roleLabelText.includes('сотруд')) return 'EMPLOYEE';
     return null;
@@ -113,15 +108,19 @@ function normalizeUser(raw = {}) {
     role,
     roleLabel: raw.role_label || raw.user?.role_label || ROLE_LABELS[role] || role,
     department: raw.department || '',
-    department_name: raw.department_name || '',
+    department_id: raw.department_id || null,
+    department_name: raw.department_name || raw.department || '',
     subdivision: raw.subdivision || '',
-    subdivision_name: raw.subdivision_name || '',
+    subdivision_id: raw.subdivision_id || null,
+    subdivision_name: raw.subdivision_name || raw.subdivision || '',
     position: raw.position || '',
-    position_name: raw.position_name || '',
+    position_id: raw.position_id || null,
+    position_name: raw.position_name || raw.position || '',
     phone: raw.phone || '',
     telegram: raw.telegram || '',
     hireDate: raw.hire_date || '',
     photo: raw.photo || raw.avatar || raw.profile_photo || raw.user?.photo || raw.user?.avatar || '',
+    must_change_password: Boolean(raw.must_change_password),
   };
 }
 
@@ -144,11 +143,7 @@ function isTokenExpired(token, skewSeconds = 30) {
 }
 
 async function refreshAccessToken(refreshToken) {
-  if (!refreshToken) throw new Error('Missing refresh token');
-  const res = await authAPI.refresh(refreshToken);
-  const { access, access_token } = res.data || {};
-  const nextAccess = access || access_token;
-  if (!nextAccess) throw new Error('No access token in refresh response');
+  const nextAccess = await refreshAccessTokenShared(refreshToken, { suppressRedirect: true });
   localStorage.setItem(STORAGE_KEYS.access, nextAccess);
   localStorage.setItem(STORAGE_KEYS.legacyAccess, nextAccess);
   return nextAccess;
@@ -196,6 +191,9 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     mountedRef.current = true;
+    const fallbackTimer = window.setTimeout(() => {
+      if (mountedRef.current) setBootstrapped(true);
+    }, 4000);
 
     getBootstrapAuthState()
       .then((state) => {
@@ -211,10 +209,12 @@ export function AuthProvider({ children }) {
       })
       .finally(() => {
         if (mountedRef.current) setBootstrapped(true);
+        window.clearTimeout(fallbackTimer);
       });
 
     return () => {
       mountedRef.current = false;
+      window.clearTimeout(fallbackTimer);
     };
   }, []);
 
@@ -265,11 +265,29 @@ export function AuthProvider({ children }) {
     return nextUser;
   };
 
-  const isAdmin = user?.role === 'department_head' || user?.role === 'admin' || user?.role === 'administrator' || user?.role === 'superadmin';
-  const isSuperAdmin = user?.role === 'superadmin';
-  const isIntern = user?.role === 'intern';
+  const isAdmin = isAdminRole(user?.role);
+  const isSuperAdmin = isSuperAdminRole(user?.role);
+  const isIntern = isInternRole(user?.role);
 
-  if (!bootstrapped) return null;
+  if (!bootstrapped) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#f8fafc',
+        color: '#334155',
+        fontFamily: 'inherit',
+      }}
+      >
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Загрузка приложения...</div>
+          <div style={{ fontSize: 13, color: '#64748b' }}>Проверяем сессию и подготавливаем данные</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AuthContext.Provider

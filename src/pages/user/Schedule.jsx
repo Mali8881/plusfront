@@ -62,6 +62,21 @@ function shortTime(value) {
   return String(value).slice(0, 5);
 }
 
+function formatDateTime(value) {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleString('ru-RU');
+}
+
+function formatDurationMinutes(totalMinutes) {
+  if (!Number.isFinite(totalMinutes) || totalMinutes < 0) return '—';
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h <= 0) return `${m} мин`;
+  return `${h} ч ${m} мин`;
+}
+
 function calcHours(from, to) {
   if (!from || !to) return 0;
   const [fh, fm] = from.split(':').map(Number);
@@ -234,7 +249,9 @@ export default function Schedule() {
   const [onlineReason, setOnlineReason] = useState('');
   const [employeeComment, setEmployeeComment] = useState('');
   const [todayAttendanceMark, setTodayAttendanceMark] = useState(null);
+  const [todaySession, setTodaySession] = useState(null);
   const [markingStart, setMarkingStart] = useState(false);
+  const [markingEnd, setMarkingEnd] = useState(false);
 
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => isoDate(today), [today]);
@@ -247,6 +264,22 @@ export default function Schedule() {
   );
   const isTodayWorking = todayShift.mode === 'office' || todayShift.mode === 'online';
   const hasTodayMark = Boolean(todayAttendanceMark?.status);
+  const hasOpenShift = Boolean(todaySession && !todaySession.checked_out_at);
+  const shiftState = useMemo(() => {
+    if (!isTodayWorking) return { label: 'Выходной', cls: 'badge-gray' };
+    if (hasOpenShift) return { label: 'Смена открыта', cls: 'badge-blue' };
+    if (todaySession?.checked_out_at) return { label: 'Смена закрыта', cls: 'badge-green' };
+    return { label: 'Смена не начата', cls: 'badge-yellow' };
+  }, [isTodayWorking, hasOpenShift, todaySession]);
+  const workedMinutes = useMemo(() => {
+    if (!todaySession?.checked_at) return null;
+    const started = new Date(todaySession.checked_at);
+    if (Number.isNaN(started.getTime())) return null;
+    const finished = todaySession.checked_out_at ? new Date(todaySession.checked_out_at) : new Date();
+    if (Number.isNaN(finished.getTime())) return null;
+    return Math.max(0, Math.floor((finished.getTime() - started.getTime()) / 60000));
+  }, [todaySession]);
+  const workedLabel = useMemo(() => formatDurationMinutes(workedMinutes), [workedMinutes]);
 
   const officeHours = useMemo(() => days.reduce((sum, d) => sum + (d.mode === 'office' ? calcHours(d.start_time, d.end_time) : 0), 0), [days]);
   const onlineHours = useMemo(() => days.reduce((sum, d) => sum + (d.mode === 'online' ? calcHours(d.start_time, d.end_time) : 0), 0), [days]);
@@ -261,6 +294,14 @@ export default function Schedule() {
     const found = rows.find((item) => String(item.date) === String(todayIso)) || null;
     setTodayAttendanceMark(found);
     return found;
+  };
+
+  const loadTodaySession = async () => {
+    const res = await attendanceAPI.mySession();
+    const payload = res?.data || {};
+    const session = payload?.session || null;
+    setTodaySession(session);
+    return session;
   };
 
   const loadAll = async () => {
@@ -295,6 +336,11 @@ export default function Schedule() {
         await loadTodayAttendanceMark();
       } catch {
         setTodayAttendanceMark(null);
+      }
+      try {
+        await loadTodaySession();
+      } catch {
+        setTodaySession(null);
       }
     } catch {
       setMessage('Не удалось загрузить данные графика.');
@@ -482,8 +528,10 @@ export default function Schedule() {
         if (!response?.data?.in_office) {
           setMessage('Офис не подтвержден. Проверьте Wi-Fi/IP офиса и повторите.');
           await loadTodayAttendanceMark();
+          await loadTodaySession();
           return;
         }
+        setTodaySession(response?.data || null);
         const found = await loadTodayAttendanceMark();
         if (found?.status) {
           setMessage('Отметка о начале работы в офисе подтверждена.');
@@ -495,11 +543,39 @@ export default function Schedule() {
       setMessage(extractErrorMessage(e, 'Не удалось выполнить отметку начала работы.'));
       try {
         await loadTodayAttendanceMark();
+        await loadTodaySession();
       } catch {
         // ignore refresh errors
       }
     } finally {
       setMarkingStart(false);
+    }
+  };
+
+  const markEndOfWork = async () => {
+    if (markingEnd) return;
+    setMarkingEnd(true);
+    setMessage('');
+    try {
+      const response = await attendanceAPI.officeCheckOut({});
+      const session = response?.data || null;
+      setTodaySession(session);
+      if (session?.auto_closed) {
+        setMessage('Смена закрыта автоматически.');
+      } else if (session?.left_early) {
+        setMessage('Смена закрыта. Зафиксирован ранний уход.');
+      } else {
+        setMessage('Смена успешно завершена.');
+      }
+    } catch (e) {
+      setMessage(extractErrorMessage(e, 'Не удалось завершить смену.'));
+      try {
+        await loadTodaySession();
+      } catch {
+        // ignore refresh errors
+      }
+    } finally {
+      setMarkingEnd(false);
     }
   };
 
@@ -529,8 +605,45 @@ export default function Schedule() {
             <div className="card">
               <div className="card-header"><span className="card-title">Текущий график</span></div>
               <div className="card-body">
+                <div className="schedule-overview-grid" style={{ marginBottom: 12 }}>
+                  <div className="schedule-overview-card">
+                    <div className="schedule-overview-label">Статус смены</div>
+                    <div><span className={`badge ${shiftState.cls}`}>{shiftState.label}</span></div>
+                    <div className="schedule-overview-hint">Сегодня: {todayLabel}</div>
+                  </div>
+                  <div className="schedule-overview-card">
+                    <div className="schedule-overview-label">Отработано</div>
+                    <div className="schedule-overview-value">{workedLabel}</div>
+                    <div className="schedule-overview-hint">
+                      {todaySession?.checked_at ? `Старт: ${formatDateTime(todaySession.checked_at)}` : 'Смена еще не начата'}
+                    </div>
+                  </div>
+                  <div className="schedule-overview-card">
+                    <div className="schedule-overview-label">Режим дня</div>
+                    <div className="schedule-overview-value">
+                      {todayShift.mode === 'office' ? 'Офис' : todayShift.mode === 'online' ? 'Онлайн' : 'Выходной'}
+                    </div>
+                    <div className="schedule-overview-hint">
+                      {todayShift.start_time && todayShift.end_time ? `${todayShift.start_time} - ${todayShift.end_time}` : 'Без рабочего окна'}
+                    </div>
+                  </div>
+                  <div className="schedule-overview-card">
+                    <div className="schedule-overview-label">Риски дня</div>
+                    <div>
+                      <span className={`badge ${todaySession?.left_early ? 'badge-orange' : 'badge-gray'}`}>
+                        {todaySession?.left_early ? 'Ранний уход' : 'Без рисков'}
+                      </span>
+                    </div>
+                    <div className="schedule-overview-hint">
+                      {todaySession?.auto_closed ? `Auto-close: ${todaySession.auto_close_note || 'Забыто'}` : 'Auto-close не применялся'}
+                    </div>
+                  </div>
+                </div>
+
                 {!mySchedule ? (
-                  <div style={{ color: 'var(--gray-500)' }}>График пока не назначен.</div>
+                  <div className="alert alert-warning" style={{ marginBottom: 8 }}>
+                    График пока не назначен. Выберите шаблон во вкладке "Запрос шаблона", чтобы включить авто-проверки раннего ухода.
+                  </div>
                 ) : (
                   <>
                     <div style={{ marginBottom: 8 }}><b>Название:</b> {mySchedule.schedule_name || '—'}</div>
@@ -565,18 +678,48 @@ export default function Schedule() {
                 </div>
 
                 {isTodayWorking && (
-                  <button
-                    className={`btn btn-sm ${hasTodayMark ? 'btn-secondary' : 'btn-primary'}`}
-                    type="button"
-                    onClick={markStartOfWork}
-                    disabled={markingStart || hasTodayMark}
-                  >
-                    {hasTodayMark
-                      ? 'Отмечен'
-                      : markingStart
-                        ? 'Проверяем...'
-                        : 'Отметиться о начале работы'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      className={`btn btn-sm ${hasTodayMark ? 'btn-secondary' : 'btn-primary'}`}
+                      type="button"
+                      onClick={markStartOfWork}
+                      disabled={markingStart || (todayShift.mode === 'office' ? hasOpenShift : hasTodayMark)}
+                    >
+                      {todayShift.mode === 'office'
+                        ? (hasOpenShift ? 'Смена открыта' : (markingStart ? 'Проверяем...' : 'Начать смену'))
+                        : (hasTodayMark ? 'Отмечен' : (markingStart ? 'Сохраняем...' : 'Отметиться о начале работы'))}
+                    </button>
+                    {todayShift.mode === 'office' && (
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        type="button"
+                        onClick={markEndOfWork}
+                        disabled={markingEnd || !hasOpenShift}
+                      >
+                        {markingEnd ? 'Завершаем...' : 'Завершить смену'}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {!isTodayWorking && (
+                  <div className="alert alert-info" style={{ marginTop: 8 }}>
+                    Сегодня нерабочий день по плану. Кнопки начала/завершения смены отключены.
+                  </div>
+                )}
+
+                {todaySession && (
+                  <div className="card" style={{ marginTop: 12 }}>
+                    <div className="card-body" style={{ display: 'grid', gap: 6 }}>
+                      <div><b>Последняя смена:</b> #{todaySession.id}</div>
+                      <div><b>Начало:</b> {formatDateTime(todaySession.checked_at)}</div>
+                      <div><b>Окончание:</b> {formatDateTime(todaySession.checked_out_at)}</div>
+                      <div><b>Ранний уход:</b> {todaySession.left_early ? 'Да' : 'Нет'}</div>
+                      <div><b>Auto-closed:</b> {todaySession.auto_closed ? 'Да' : 'Нет'}</div>
+                      {todaySession.auto_closed && (
+                        <div><b>Причина:</b> {todaySession.auto_close_note || '—'}</div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -805,8 +948,6 @@ export default function Schedule() {
     </MainLayout>
   );
 }
-
-
 
 
 

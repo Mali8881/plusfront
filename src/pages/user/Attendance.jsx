@@ -210,21 +210,8 @@ export default function Attendance() {
       const params = { year: period.year, month: period.month };
       let payload;
 
-      const role = String(user?.role || '').toLowerCase();
-      const isAdminLike = role.includes('admin');
-
-      if (isAdminLike) {
-        try {
-          const adminRes = await api.get('/v1/attendance/admin/', { params });
-          payload = adminRes?.data;
-        } catch {
-          const commonRes = await api.get('/v1/attendance/', { params });
-          payload = commonRes?.data;
-        }
-      } else {
-        const res = await api.get('/v1/attendance/', { params });
-        payload = res?.data;
-      }
+      const res = await api.get('/v1/attendance/', { params });
+      payload = res?.data;
 
       const normalized = normalizePayloadToRows(payload || {});
       const nextDays = normalized.days;

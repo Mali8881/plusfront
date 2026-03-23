@@ -4,6 +4,7 @@ import { CheckCircle, Circle, Download, ExternalLink, Maximize2, Send, X } from 
 import MainLayout from '../../layouts/MainLayout';
 import api from '../../api/axios';
 import { onboardingAPI, regulationsAPI } from '../../api/content';
+import LockedVideoPlayer, { isLockedVideoCandidate } from '../../components/LockedVideoPlayer';
 
 const STATUS_LABELS = {
   draft: 'Черновик',
@@ -46,6 +47,15 @@ function parseQuizQuestion(rawQuestion) {
   return { question, options };
 }
 
+function materialTypeLabel(type) {
+  const raw = String(type || '').toLowerCase();
+  if (raw === 'video') return 'Видео';
+  if (raw === 'link') return 'Ссылка';
+  if (raw === 'file') return 'Файл';
+  if (raw === 'image') return 'Изображение';
+  return 'Текст';
+}
+
 export default function Onboarding() {
   const location = useLocation();
   const [tab, setTab] = useState('onboarding');
@@ -67,6 +77,7 @@ export default function Onboarding() {
   const [quizDrafts, setQuizDrafts] = useState({});
   const [stepView, setStepView] = useState({});
   const [activeRegIndex, setActiveRegIndex] = useState(0);
+  const [selectedMaterial, setSelectedMaterial] = useState(null);
   const [selectedRegulation, setSelectedRegulation] = useState(null);
   const [selectedRegulationBlobUrl, setSelectedRegulationBlobUrl] = useState('');
   const [reportAttachment, setReportAttachment] = useState(null);
@@ -90,6 +101,7 @@ export default function Onboarding() {
     return map;
   }, [overview]);
   const activeDetail = activeDay ? dayDetails[String(activeDay.id)] : null;
+  const materials = activeDetail?.materials || [];
   const activeDayStatus = activeDay ? String(dayStatusById[String(activeDay.id)] || '').toUpperCase() : '';
   const activeReport = activeDay ? findReportByDay(reports, activeDay.id) : null;
   const tasks = activeDetail?.tasks || [];
@@ -256,6 +268,14 @@ export default function Onboarding() {
       window.URL.revokeObjectURL(selectedRegulationBlobUrl);
       setSelectedRegulationBlobUrl('');
     }
+  };
+
+  const openMaterialPreview = (material) => {
+    setSelectedMaterial(material);
+  };
+
+  const closeMaterialModal = () => {
+    setSelectedMaterial(null);
   };
 
   const completeCurrentDay = async () => {
@@ -603,6 +623,48 @@ export default function Onboarding() {
               <div style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 16 }}>
                 Дедлайн: {activeDay.deadline_time || 'Не задан'}
               </div>
+
+              {materials.length > 0 && (
+                <div className="card" style={{ marginBottom: 16, border: '1px solid var(--gray-200)' }}>
+                  <div className="card-body" style={{ padding: 16 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}>Материалы дня</div>
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      {materials.map((material, index) => (
+                        <div
+                          key={material.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: 12,
+                            borderRadius: 12,
+                            border: '1px solid var(--gray-200)',
+                            background: 'var(--gray-50)',
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700 }}>
+                              Материал {index + 1}: {materialTypeLabel(material.type)}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 4, wordBreak: 'break-word' }}>
+                              {String(material.content || '').slice(0, 120) || 'Материал без описания'}
+                              {String(material.content || '').length > 120 ? '…' : ''}
+                            </div>
+                          </div>
+                          <button
+                            className="btn btn-outline"
+                            type="button"
+                            onClick={() => openMaterialPreview(material)}
+                          >
+                            {String(material.type || '').toLowerCase() === 'video' ? 'Открыть видео' : 'Открыть материал'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {isDayTwo && (
                 <div className="card" style={{ marginBottom: 16, border: '1px solid var(--gray-200)' }}>
@@ -1146,6 +1208,60 @@ export default function Onboarding() {
             </div>
           )}
 
+          {selectedMaterial && (
+            <div className="modal-overlay" onClick={closeMaterialModal}>
+              <div className="modal" style={{ width: 'calc(100vw - 24px)', height: 'calc(100vh - 24px)', maxWidth: 'unset', maxHeight: 'unset' }} onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <div className="modal-title">{materialTypeLabel(selectedMaterial.type)}</div>
+                  <button className="btn-icon" type="button" onClick={closeMaterialModal}><X size={18} /></button>
+                </div>
+                <div className="modal-body">
+                  {String(selectedMaterial.type || '').toLowerCase() === 'video' && selectedMaterial.content ? (
+                    <LockedVideoPlayer src={selectedMaterial.content} title={`Материал дня: ${materialTypeLabel(selectedMaterial.type)}`} />
+                  ) : isLockedVideoCandidate(selectedMaterial.content) ? (
+                    <LockedVideoPlayer src={selectedMaterial.content} title={`Материал дня: ${materialTypeLabel(selectedMaterial.type)}`} />
+                  ) : String(selectedMaterial.type || '').toLowerCase() === 'text' ? (
+                    <div
+                      style={{
+                        maxHeight: '65vh',
+                        overflowY: 'auto',
+                        border: '1px solid var(--gray-200)',
+                        borderRadius: 8,
+                        background: '#fff',
+                        padding: 12,
+                        whiteSpace: 'pre-wrap',
+                        lineHeight: 1.6,
+                        fontSize: 14,
+                        color: 'var(--gray-800)',
+                      }}
+                    >
+                      {selectedMaterial.content || 'Текст материала пока недоступен.'}
+                    </div>
+                  ) : selectedMaterial.content ? (
+                    <iframe
+                      title={`material-${selectedMaterial.id}`}
+                      src={selectedMaterial.content}
+                      style={{ width: '100%', height: 'calc(100vh - 170px)', border: '1px solid var(--gray-200)', borderRadius: 8, background: '#fff' }}
+                    />
+                  ) : (
+                    <div style={{ color: 'var(--gray-500)' }}>У материала нет ссылки для открытия.</div>
+                  )}
+                </div>
+                <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
+                  {selectedMaterial.content ? (
+                    <button
+                      className="btn btn-outline"
+                      onClick={() => window.open(selectedMaterial.content, '_blank', 'noopener,noreferrer')}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <Maximize2 size={14} /> Открыть в новой вкладке
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          )}
+
           {selectedRegulation && (
             <div className="modal-overlay" onClick={closeRegulationModal}>
               <div className="modal" style={{ width: 'calc(100vw - 24px)', height: 'calc(100vh - 24px)', maxWidth: 'unset', maxHeight: 'unset' }} onClick={(e) => e.stopPropagation()}>
@@ -1155,11 +1271,18 @@ export default function Onboarding() {
                 </div>
                 <div className="modal-body">
                   {(selectedRegulation.type === 'link' && selectedRegulation.content) || selectedRegulationBlobUrl ? (
-                    <iframe
-                      title={`regulation-${selectedRegulation.id}`}
-                      src={selectedRegulation.type === 'link' ? selectedRegulation.content : selectedRegulationBlobUrl}
-                      style={{ width: '100%', height: 'calc(100vh - 170px)', border: '1px solid var(--gray-200)', borderRadius: 8, background: '#fff' }}
-                    />
+                    isLockedVideoCandidate(selectedRegulation.type === 'link' ? selectedRegulation.content : selectedRegulationBlobUrl) ? (
+                      <LockedVideoPlayer
+                        src={selectedRegulation.type === 'link' ? selectedRegulation.content : selectedRegulationBlobUrl}
+                        title={selectedRegulation.title}
+                      />
+                    ) : (
+                      <iframe
+                        title={`regulation-${selectedRegulation.id}`}
+                        src={selectedRegulation.type === 'link' ? selectedRegulation.content : selectedRegulationBlobUrl}
+                        style={{ width: '100%', height: 'calc(100vh - 170px)', border: '1px solid var(--gray-200)', borderRadius: 8, background: '#fff' }}
+                      />
+                    )
                   ) : (
                     <div
                       style={{

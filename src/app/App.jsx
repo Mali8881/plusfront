@@ -1,41 +1,73 @@
-﻿import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Suspense, lazy } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { LocaleProvider } from '../context/LocaleContext';
+import AutoLocaleText from '../components/common/AutoLocaleText';
+import {
+  ADMINISTRATOR_ROLES,
+  ADMIN_LIKE_ROLES,
+  DEPARTMENT_HEAD_ROLES,
+  TEAM_MANAGER_ROLES,
+  hasAnyRole,
+} from '../utils/roles';
 
-import Login          from '../pages/auth/Login';
-import ForgotPassword from '../pages/auth/ForgotPassword';
-import ResetPassword  from '../pages/auth/ResetPassword';
-import Dashboard      from '../pages/user/Dashboard';
-import Onboarding     from '../pages/user/Onboarding';
-import Regulations    from '../pages/user/Regulations';
-import Schedule       from '../pages/user/Schedule';
-import Profile        from '../pages/user/Profile';
-import Instructions   from '../pages/user/Instructions';
-import Tasks          from '../pages/user/Tasks';
-import Salary         from '../pages/user/Salary';
-import Company        from '../pages/user/Company';
+const Login = lazy(() => import('../pages/auth/Login'));
+const ForgotPassword = lazy(() => import('../pages/auth/ForgotPassword'));
+const ResetPassword = lazy(() => import('../pages/auth/ResetPassword'));
+const Dashboard = lazy(() => import('../pages/user/Dashboard'));
+const Onboarding = lazy(() => import('../pages/user/Onboarding'));
+const Regulations = lazy(() => import('../pages/user/Regulations'));
+const Schedule = lazy(() => import('../pages/user/Schedule'));
+const Profile = lazy(() => import('../pages/user/Profile'));
+const Instructions = lazy(() => import('../pages/user/Instructions'));
+const Tasks = lazy(() => import('../pages/user/Tasks'));
+const Salary = lazy(() => import('../pages/user/Salary'));
+const Company = lazy(() => import('../pages/user/Company'));
+const Resources = lazy(() => import('../pages/user/Resources'));
+const Lessons = lazy(() => import('../pages/user/Lessons'));
+const Courses = lazy(() => import('../pages/user/Courses'));
+const Pulse = lazy(() => import('../pages/user/Pulse'));
+const Wiki = lazy(() => import('../pages/user/Wiki'));
 
-import AdminUsers      from '../pages/admin/Users';
-import AdminRoles      from '../pages/admin/Roles';
-import AdminDepartmentsSubdivisions from '../pages/admin/DepartmentsSubdivisions';
-import AdminContent    from '../pages/admin/Content';
-import AdminOnboarding from '../pages/admin/Onboarding';
-import AdminOverview   from '../pages/admin/Overview';
-import AdminSchedules  from '../pages/admin/Schedules';
-import AdminFeedback   from '../pages/admin/Feedback';
-import AdminSystem     from '../pages/admin/System';
-import AdminInterface  from '../pages/admin/Interface';
-import AttendanceMarks from '../pages/admin/AttendanceMarks';
-import AdminInterns    from '../pages/admin/Interns';
-import AutoLocaleText  from '../components/common/AutoLocaleText';
+const AdminUsers = lazy(() => import('../pages/admin/Users'));
+const AdminRoles = lazy(() => import('../pages/admin/Roles'));
+const AdminDepartmentsSubdivisions = lazy(() => import('../pages/admin/DepartmentsSubdivisions'));
+const AdminContent = lazy(() => import('../pages/admin/Content'));
+const AdminOnboarding = lazy(() => import('../pages/admin/Onboarding'));
+const AdminOverview = lazy(() => import('../pages/admin/Overview'));
+const AdminSchedules = lazy(() => import('../pages/admin/Schedules'));
+const AdminFeedback = lazy(() => import('../pages/admin/Feedback'));
+const AdminSystem = lazy(() => import('../pages/admin/System'));
+const AdminInterface = lazy(() => import('../pages/admin/Interface'));
+const AttendanceMarks = lazy(() => import('../pages/admin/AttendanceMarks'));
+const AdminInterns = lazy(() => import('../pages/admin/Interns'));
 
-const ADMIN_ROLES = ['department_head', 'admin', 'administrator', 'superadmin'];
-const CONTENT_MANAGE_ROLES = ['department_head', 'admin', 'administrator', 'superadmin'];
+const CONTENT_MANAGE_ROLES = ['administrator', 'superadmin', 'systemadmin'];
+
+function RouteLoader() {
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: '#f8fafc',
+      color: '#334155',
+      fontFamily: 'inherit',
+    }}
+    >
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Загрузка страницы...</div>
+        <div style={{ fontSize: 13, color: '#64748b' }}>Подготавливаем интерфейс</div>
+      </div>
+    </div>
+  );
+}
 
 function HomeRedirect() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (ADMIN_ROLES.includes(String(user.role || '').toLowerCase())) return <Navigate to="/admin/overview" replace />;
+  if (hasAnyRole(user.role, ADMIN_LIKE_ROLES)) return <Navigate to="/admin/overview" replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -70,15 +102,15 @@ function TrueSuperAdminRoute({ children }) {
 function OnboardingManageRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  const allowed = ['admin', 'administrator', 'superadmin', 'projectmanager', 'department_head'];
-  if (!allowed.includes(String(user.role || '').toLowerCase())) return <Navigate to="/dashboard" replace />;
+  const allowed = ['admin', 'administrator', 'superadmin', 'systemadmin'];
+  if (!hasAnyRole(user.role, allowed)) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
 function InternsManageRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (!['department_head', 'admin', 'administrator', 'superadmin'].includes(String(user.role || '').toLowerCase())) {
+  if (!hasAnyRole(user.role, ['admin', 'administrator', 'superadmin', 'systemadmin'])) {
     return <Navigate to="/admin/overview" replace />;
   }
   return children;
@@ -91,11 +123,12 @@ function NonInternRoute({ children }) {
   return children;
 }
 
-// Зарплата: все кроме стажера и руководителя отдела
 function SalaryRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === 'intern' || user.role === 'department_head') return <Navigate to="/dashboard" replace />;
+  if (['teamlead', 'projectmanager'].includes(String(user.role || '').toLowerCase())) {
+    return <Navigate to="/dashboard" replace />;
+  }
   return children;
 }
 
@@ -115,8 +148,24 @@ function TasksRoute({ children }) {
 function AttendanceMarksRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (!['projectmanager', 'department_head', 'admin', 'administrator', 'superadmin'].includes(String(user.role || '').toLowerCase())) {
+  if (!hasAnyRole(user.role, [...TEAM_MANAGER_ROLES, ...DEPARTMENT_HEAD_ROLES, ...ADMINISTRATOR_ROLES, 'superadmin'])) {
     return <Navigate to="/dashboard" replace />;
+  }
+  return children;
+}
+
+function RolesRoute({ children }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (!hasAnyRole(user.role, ['superadmin'])) return <Navigate to="/admin/overview" replace />;
+  return children;
+}
+
+function DepartmentsAdminRoute({ children }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (!hasAnyRole(user.role, ['administrator', 'superadmin', 'systemadmin'])) {
+    return <Navigate to="/admin/overview" replace />;
   }
   return children;
 }
@@ -124,7 +173,7 @@ function AttendanceMarksRoute({ children }) {
 function PublicOnlyRoute({ children }) {
   const { user } = useAuth();
   if (!user) return children;
-  if (ADMIN_ROLES.includes(String(user.role || '').toLowerCase())) return <Navigate to="/admin/overview" replace />;
+  if (hasAnyRole(user.role, ADMIN_LIKE_ROLES)) return <Navigate to="/admin/overview" replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -143,37 +192,43 @@ export default function App() {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/"               element={<HomeRedirect />} />
-      <Route path="/login"          element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
-      <Route path="/forgot-password" element={<PublicOnlyRoute><ForgotPassword /></PublicOnlyRoute>} />
-      <Route path="/reset-password"  element={<PublicOnlyRoute><ResetPassword /></PublicOnlyRoute>} />
+    <Suspense fallback={<RouteLoader />}>
+      <Routes>
+        <Route path="/" element={<HomeRedirect />} />
+        <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
+        <Route path="/forgot-password" element={<PublicOnlyRoute><ForgotPassword /></PublicOnlyRoute>} />
+        <Route path="/reset-password" element={<PublicOnlyRoute><ResetPassword /></PublicOnlyRoute>} />
 
-      <Route path="/dashboard"      element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-      <Route path="/onboarding"     element={<PrivateRoute><Onboarding /></PrivateRoute>} />
-      <Route path="/regulations"    element={<NonInternRoute><Regulations /></NonInternRoute>} />
-      <Route path="/schedule"       element={<NonInternRoute><Schedule /></NonInternRoute>} />
-      <Route path="/profile"        element={<PrivateRoute><Profile /></PrivateRoute>} />
-      <Route path="/instructions"   element={<PrivateRoute><Instructions /></PrivateRoute>} />
-      <Route path="/company"        element={<CompanyRoute><Company /></CompanyRoute>} />
-      <Route path="/tasks"          element={<TasksRoute><Tasks /></TasksRoute>} />
-      <Route path="/salary"         element={<SalaryRoute><Salary /></SalaryRoute>} />
-      <Route path="/attendance-marks" element={<AttendanceMarksRoute><AttendanceMarks /></AttendanceMarksRoute>} />
+        <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+        <Route path="/onboarding" element={<PrivateRoute><Onboarding /></PrivateRoute>} />
+        <Route path="/regulations" element={<NonInternRoute><Regulations /></NonInternRoute>} />
+        <Route path="/schedule" element={<NonInternRoute><Schedule /></NonInternRoute>} />
+        <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+        <Route path="/instructions" element={<PrivateRoute><Instructions /></PrivateRoute>} />
+        <Route path="/company" element={<CompanyRoute><Company /></CompanyRoute>} />
+        <Route path="/resources" element={<NonInternRoute><Resources /></NonInternRoute>} />
+        <Route path="/lessons" element={<PrivateRoute><Lessons /></PrivateRoute>} />
+        <Route path="/courses" element={<PrivateRoute><Courses /></PrivateRoute>} />
+        <Route path="/tasks" element={<TasksRoute><Tasks /></TasksRoute>} />
+        <Route path="/pulse" element={<PrivateRoute><Pulse /></PrivateRoute>} />
+        <Route path="/wiki" element={<PrivateRoute><Wiki /></PrivateRoute>} />
+        <Route path="/salary" element={<SalaryRoute><Salary /></SalaryRoute>} />
+        <Route path="/attendance-marks" element={<AttendanceMarksRoute><AttendanceMarks /></AttendanceMarksRoute>} />
 
-      <Route path="/admin/overview"   element={<AdminRoute><AdminOverview /></AdminRoute>} />
-      <Route path="/admin/users"      element={<AdminRoute><AdminUsers /></AdminRoute>} />
-      <Route path="/admin/roles"      element={<TrueSuperAdminRoute><AdminRoles /></TrueSuperAdminRoute>} />
-      <Route path="/admin/departments-subdivisions" element={<AdminRoute><AdminDepartmentsSubdivisions /></AdminRoute>} />
-      <Route path="/admin/content"    element={<ContentManageRoute><AdminContent /></ContentManageRoute>} />
-      <Route path="/admin/onboarding" element={<OnboardingManageRoute><AdminOnboarding /></OnboardingManageRoute>} />
-      <Route path="/admin/interns"    element={<InternsManageRoute><AdminInterns /></InternsManageRoute>} />
-      <Route path="/admin/schedules"  element={<AdminRoute><AdminSchedules /></AdminRoute>} />
-      <Route path="/admin/feedback"   element={<AdminRoute><AdminFeedback /></AdminRoute>} />
-      <Route path="/admin/system"     element={<TrueSuperAdminRoute><AdminSystem /></TrueSuperAdminRoute>} />
-      <Route path="/admin/interface"  element={<TrueSuperAdminRoute><AdminInterface /></TrueSuperAdminRoute>} />
+        <Route path="/admin/overview" element={<AdminRoute><AdminOverview /></AdminRoute>} />
+        <Route path="/admin/users" element={<AdminRoute><AdminUsers /></AdminRoute>} />
+        <Route path="/admin/roles" element={<RolesRoute><AdminRoles /></RolesRoute>} />
+        <Route path="/admin/departments-subdivisions" element={<DepartmentsAdminRoute><AdminDepartmentsSubdivisions /></DepartmentsAdminRoute>} />
+        <Route path="/admin/content" element={<ContentManageRoute><AdminContent /></ContentManageRoute>} />
+        <Route path="/admin/onboarding" element={<OnboardingManageRoute><AdminOnboarding /></OnboardingManageRoute>} />
+        <Route path="/admin/interns" element={<InternsManageRoute><AdminInterns /></InternsManageRoute>} />
+        <Route path="/admin/schedules" element={<AdminRoute><AdminSchedules /></AdminRoute>} />
+        <Route path="/admin/feedback" element={<AdminRoute><AdminFeedback /></AdminRoute>} />
+        <Route path="/admin/system" element={<TrueSuperAdminRoute><AdminSystem /></TrueSuperAdminRoute>} />
+        <Route path="/admin/interface" element={<TrueSuperAdminRoute><AdminInterface /></TrueSuperAdminRoute>} />
 
-      <Route path="*" element={<HomeRedirect />} />
-    </Routes>
+        <Route path="*" element={<HomeRedirect />} />
+      </Routes>
+    </Suspense>
   );
 }
-

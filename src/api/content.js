@@ -43,7 +43,14 @@ export const regulationsAPI = {
 
 export const userLessonsAPI = {
   list: () => api.get('/v1/content/user-lessons/'),
-  update: (id, note) => api.patch(`/v1/content/user-lessons/${id}/`, { note }),
+  update: (id, data) => api.patch(`/v1/content/user-lessons/${id}/`, data),
+};
+
+export const lessonsAdminAPI = {
+  list: () => api.get('/v1/content/lessons/'),
+  create: (data) => api.post('/v1/content/lessons/', data),
+  update: (id, data) => api.patch(`/v1/content/lessons/${id}/`, data),
+  delete: (id) => api.delete(`/v1/content/lessons/${id}/`),
 };
 
 export const instructionsAPI = {

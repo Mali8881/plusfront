@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
-import { coursesAdminAPI, instructionsAPI, newsAPI, regulationsAPI } from '../../api/content';
+import { coursesAdminAPI, instructionsAPI, lessonsAdminAPI, newsAPI, regulationsAPI } from '../../api/content';
 import { departmentsAPI } from '../../api/auth';
 
 const emptyNews = { title: '', full_text: '', language: 'ru' };
@@ -16,6 +16,7 @@ const emptyReg = {
 };
 const emptyInstruction = { language: 'ru', type: 'text', content: '', is_active: true };
 const emptyCourse = { title: '', description: '', visibility: 'public', department: '', is_active: true };
+const emptyLesson = { title: '', description: '', content: '', tags: '' };
 
 export default function AdminContent() {
   const [tab, setTab] = useState('news');
@@ -44,16 +45,21 @@ export default function AdminContent() {
   const [assignToAll, setAssignToAll] = useState(true);
   const [assignUserIds, setAssignUserIds] = useState('');
 
+  const [lessons, setLessons] = useState([]);
+  const [lessonForm, setLessonForm] = useState(emptyLesson);
+  const [lessonEditId, setLessonEditId] = useState(null);
+
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const [newsRes, regRes, instructionsRes, coursesRes, departmentsRes] = await Promise.all([
+      const [newsRes, regRes, instructionsRes, coursesRes, departmentsRes, lessonsRes] = await Promise.all([
         newsAPI.list(),
         regulationsAPI.list(),
         instructionsAPI.list(),
         coursesAdminAPI.list(),
         departmentsAPI.list(),
+        lessonsAdminAPI.list(),
       ]);
       setNews(Array.isArray(newsRes.data) ? newsRes.data : []);
       setRegs(Array.isArray(regRes.data) ? regRes.data : []);
@@ -70,6 +76,7 @@ export default function AdminContent() {
           ? departmentsRes.data.results
           : [];
       setDepartments(departmentsData);
+      setLessons(Array.isArray(lessonsRes.data) ? lessonsRes.data : []);
     } catch (e) {
       setError(e.response?.data?.detail || 'Не удалось загрузить контент.');
     } finally {
@@ -266,12 +273,14 @@ export default function AdminContent() {
             <Stat title="Новости" value={stats.news} />
             <Stat title="Регламенты" value={stats.regs} />
             <Stat title="Инструкции" value={stats.instructions} />
+            <Stat title="Уроки" value={lessons.length} />
           </div>
 
           <div className="tabs">
             <button className={`tab-btn ${tab === 'news' ? 'active' : ''}`} onClick={() => setTab('news')}>Новости</button>
             <button className={`tab-btn ${tab === 'regulations' ? 'active' : ''}`} onClick={() => setTab('regulations')}>Регламенты</button>
             <button className={`tab-btn ${tab === 'instructions' ? 'active' : ''}`} onClick={() => setTab('instructions')}>Инструкции</button>
+            <button className={`tab-btn ${tab === 'lessons' ? 'active' : ''}`} onClick={() => setTab('lessons')}>Уроки</button>
           </div>
 
           {tab === 'news' && (
@@ -495,6 +504,98 @@ export default function AdminContent() {
                 }}
                 onDelete={async (item) => {
                   await instructionsAPI.delete(item.id);
+                  await load();
+                }}
+              />
+            </>
+          )}
+
+          {tab === 'lessons' && (
+            <>
+              <div className="card" style={{ marginBottom: 12 }}>
+                <div className="card-header">
+                  <span className="card-title">{lessonEditId ? 'Редактировать урок' : 'Новый урок'}</span>
+                </div>
+                <div className="card-body" style={{ display: 'grid', gap: 10 }}>
+                  <input
+                    className="form-input"
+                    placeholder="Заголовок"
+                    value={lessonForm.title}
+                    onChange={(e) => setLessonForm((f) => ({ ...f, title: e.target.value }))}
+                  />
+                  <input
+                    className="form-input"
+                    placeholder="Описание (краткое)"
+                    value={lessonForm.description}
+                    onChange={(e) => setLessonForm((f) => ({ ...f, description: e.target.value }))}
+                  />
+                  <textarea
+                    className="form-textarea"
+                    placeholder="Содержимое урока"
+                    value={lessonForm.content}
+                    onChange={(e) => setLessonForm((f) => ({ ...f, content: e.target.value }))}
+                    style={{ minHeight: 100 }}
+                  />
+                  <input
+                    className="form-input"
+                    placeholder='Теги через запятую, напр: Продажи, Переговоры'
+                    value={lessonForm.tags}
+                    onChange={(e) => setLessonForm((f) => ({ ...f, tags: e.target.value }))}
+                  />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={!lessonForm.title.trim()}
+                      onClick={async () => {
+                        const tags = lessonForm.tags
+                          .split(',')
+                          .map((t) => t.trim())
+                          .filter(Boolean);
+                        const payload = {
+                          title: lessonForm.title.trim(),
+                          description: lessonForm.description.trim(),
+                          content: lessonForm.content.trim(),
+                          tags,
+                        };
+                        if (lessonEditId) {
+                          await lessonsAdminAPI.update(lessonEditId, payload);
+                        } else {
+                          await lessonsAdminAPI.create(payload);
+                        }
+                        setLessonForm(emptyLesson);
+                        setLessonEditId(null);
+                        await load();
+                      }}
+                    >
+                      <Plus size={13} /> {lessonEditId ? 'Сохранить' : 'Добавить урок'}
+                    </button>
+                    {lessonEditId && (
+                      <button className="btn btn-secondary btn-sm" onClick={() => { setLessonEditId(null); setLessonForm(emptyLesson); }}>
+                        Отмена
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <DataTable
+                rows={lessons}
+                columns={[
+                  { key: 'title', label: 'НАЗВАНИЕ' },
+                  { key: 'description', label: 'ОПИСАНИЕ' },
+                  { key: 'tags_str', label: 'ТЕГИ' },
+                ]}
+                mapRow={(row) => ({ ...row, tags_str: Array.isArray(row.tags) ? row.tags.join(', ') : '' })}
+                onEdit={(item) => {
+                  setLessonEditId(item.id);
+                  setLessonForm({
+                    title: item.title || '',
+                    description: item.description || '',
+                    content: item.content || '',
+                    tags: Array.isArray(item.tags) ? item.tags.join(', ') : '',
+                  });
+                }}
+                onDelete={async (item) => {
+                  await lessonsAdminAPI.delete(item.id);
                   await load();
                 }}
               />

@@ -32,7 +32,7 @@ export const regulationsAPI = {
   submitInternCompletion: () => api.post('/v1/regulations/intern/submit/'),
   adminInternRequests: (params) => api.get('/v1/regulations/admin/intern-requests/', { params }),
   approveInternRequest: (requestId, data) => api.post(`/v1/regulations/admin/intern-requests/${requestId}/approve/`, data || {}),
-  markRead: (id) => api.post(`/v1/regulations/${id}/read/`),
+  markRead: (id, data) => api.post(`/v1/regulations/${id}/read/`, data),
   sendFeedback: (id, data) => api.post(`/v1/regulations/${id}/feedback/`, data),
   submitFeedback: (id, data) => api.post(`/v1/regulations/${id}/feedback/`, data),
   submitQuiz: (id, data) => api.post(`/v1/regulations/${id}/quiz/`, data),
@@ -112,6 +112,7 @@ export const attendanceAPI = {
 
 export const feedbackAPI = {
   list: () => api.get('/v1/content/admin/feedback/'),
+  exitSurveys: () => api.get('/feedback/exit-surveys/'),
   create: (data) => api.post('/v1/content/feedback/', data),
   reply: (id, data) => api.post(`/v1/content/admin/feedback/${id}/set-status/`, data),
   delete: (id) => api.delete(`/v1/content/admin/feedback/${id}/`),
@@ -165,6 +166,12 @@ export const tasksAPI = {
   deleteAttachment: (id, attachmentId) => api.delete(`/v1/tasks/${id}/attachments/${attachmentId}/`),
   history: (id) => api.get(`/v1/tasks/${id}/history/`),
   move: (id, column_id) => api.patch(`/v1/tasks/${id}/move/`, { column_id }),
+  attachments: (taskId) => api.get(`/v1/tasks/${taskId}/attachments/`),
+  uploadAttachment: (taskId, data) => api.post(`/v1/tasks/${taskId}/attachments/`, data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  deleteAttachment: (attachmentId) => api.delete(`/v1/tasks/attachments/${attachmentId}/`),
+  moves: (params) => api.get('/v1/tasks/moves/', { params }),
   dailyReports: (params) => api.get('/v1/reports/employee/daily/', { params }),
   submitDailyReport: (data) => api.post('/v1/reports/employee/daily/', data),
   reviewDailyReport: (id, data) => api.post(`/v1/reports/employee/daily/${id}/review/`, data),
@@ -213,6 +220,7 @@ export const notificationsAPI = {
 
 export const gamificationAPI = {
   my: () => api.get('/v1/gamification/my/'),
+  leaderboard: (params) => api.get('/v1/gamification/leaderboard/', { params }),
 };
 
 export const metricsAPI = {
@@ -225,4 +233,16 @@ export const metricsAPI = {
   onboardingKpi: () => api.get('/v1/metrics/onboarding-kpi/'),
 };
 
-
+export const desksAPI = {
+  list: (params) => api.get('/v1/desks/', { params }),
+  availability: (params) => api.get('/v1/desks/availability/', { params }),
+  book: (data) => api.post('/v1/desks/bookings/', data),
+  cancel: (id) => api.delete(`/v1/desks/bookings/${id}/`),
+  rooms: (params) => api.get('/v1/desks/rooms/', { params }),
+  roomCreate: (data) => api.post('/v1/desks/rooms/', data),
+  roomDelete: (id) => api.delete(`/v1/desks/rooms/${id}/`),
+  roomOptions: () => api.get('/v1/desks/rooms/options/'),
+  roomsAvailability: (params) => api.get('/v1/desks/rooms/availability/', { params }),
+  roomBook: (data) => api.post('/v1/desks/rooms/bookings/', data),
+  roomCancel: (id) => api.delete(`/v1/desks/rooms/bookings/${id}/`),
+};

@@ -8,3 +8,4 @@ dist/
 .idea/
 *.log
 vpluse_second/
+venv/

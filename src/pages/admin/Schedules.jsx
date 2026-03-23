@@ -650,6 +650,118 @@ export default function AdminSchedules() {
               </div>
             </div>
           )}
+
+          {tab === 'weekly' && (
+            <div className="card">
+              <div className="card-header" style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
+                <div>
+                  <label className="form-label">Неделя (понедельник)</label>
+                  <input className="form-input" type="date" value={weekFilter} onChange={(e) => setWeekFilter(normalizeWeekFilter(e.target.value))} />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => setWeekFilter((prev) => shiftWeekFilter(prev, -1))}
+                  >
+                    Предыдущая неделя
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => setWeekFilter((prev) => shiftWeekFilter(prev, 1))}
+                  >
+                    Следующая неделя
+                  </button>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">Комментарий администратора</label>
+                  <input className="form-input" value={decisionComment} onChange={(e) => setDecisionComment(e.target.value)} placeholder="Комментарий для доработки/отклонения" />
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr><th>ID</th><th>Сотрудник</th><th>Неделя</th><th>Офис</th><th>Онлайн</th><th>Статус</th><th>Обновлен</th><th>Действия</th></tr>
+                  </thead>
+                  <tbody>
+                    {plansForWeek.map((p) => (
+                      <tr key={p.id}>
+                        <td>{p.id}</td>
+                        <td>{p.username || usersMap.get(Number(p.user))?.full_name || `#${p.user}`}</td>
+                        <td>{p.week_start}</td>
+                        <td>{p.office_hours} ч</td>
+                        <td>{p.online_hours} ч</td>
+                        <td>{STATUS_LABELS[p.status] || p.status}</td>
+                        <td>{formatDateTime(p.updated_at)}</td>
+                        <td>
+                          {p.status !== 'approved' && (
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              <button className="btn btn-primary btn-sm" onClick={() => decideWeeklyPlan(p.id, 'approve')}>Утвердить</button>
+                              <button className="btn btn-secondary btn-sm" onClick={() => decideWeeklyPlan(p.id, 'request_clarification')}>На доработку</button>
+                              <button className="btn btn-secondary btn-sm" onClick={() => decideWeeklyPlan(p.id, 'reject')}>Отклонить</button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {plansForWeek.length === 0 && <tr><td colSpan={8}>На выбранную неделю планов нет.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {tab === 'board' && (
+            <div className="card">
+              <div className="card-header" style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
+                <div>
+                  <label className="form-label">Неделя (понедельник)</label>
+                  <input className="form-input" type="date" value={weekFilter} onChange={(e) => setWeekFilter(normalizeWeekFilter(e.target.value))} />
+                </div>
+                <div style={{ color: 'var(--gray-500)', fontSize: 13, marginLeft: 'auto' }}>
+                  Показываются только утвержденные реальные смены сотрудников
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={loadTeamAttendanceByWeek}
+                  >
+                    Обновить
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => setWeekFilter((prev) => shiftWeekFilter(prev, -1))}
+                  >
+                    Предыдущая неделя
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => setWeekFilter((prev) => shiftWeekFilter(prev, 1))}
+                  >
+                    Следующая неделя
+                  </button>
+                </div>
+              </div>
+              <div style={{ padding: '8px 20px 0', fontSize: 12, color: 'var(--gray-600)' }}>
+
+
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(170px, 1fr))', borderTop: '1px solid var(--gray-200)', overflowX: 'auto' }}>
+                {boardColumns.map((col, idx) => (
+                  <div key={col.label} style={{ minHeight: 360, borderRight: idx < 6 ? '1px solid var(--gray-200)' : 'none' }}>
+                    <div style={{ background: '#0B1C46', color: 'white', padding: '10px 12px' }}>
+                      <div style={{ fontWeight: 700 }}>{col.label}</div>
+                      <div style={{ fontSize: 12, opacity: 0.9 }}>{formatDate(new Date(new Date(weekFilter).getTime() + idx * 86400000))}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
 

@@ -1,4 +1,4 @@
-﻿importmo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 
 export const LOCALE_KEY = 'vpluse_locale_v1';
 const DEFAULT_LOCALE = 'ru';

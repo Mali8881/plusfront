@@ -2368,6 +2368,7 @@ input, textarea, select { font-family: var(--font); }
   .payroll-adjustments-grid { grid-template-columns: 1fr; }
   .payroll-toolbar,
   .payroll-section-head { align-items: stretch; }
+}
 @media (max-width: 980px) {
   .intern-dashboard-grid,
   .intern-dashboard-grid--wide {

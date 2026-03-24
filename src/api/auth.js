@@ -232,3 +232,8 @@ export const orgStructureAPI = {
   delete: (id) => api.delete(`/auth/org-units/${id}/`),
   seedLargeDemo: () => api.post('/auth/org-units/seed_large_demo/'),
 };
+
+export const exitInterviewsAPI = {
+  getByToken: (token) => api.get(`/v1/accounts/exit-interviews/${token}/`),
+  submit: (token, data) => api.post(`/v1/accounts/exit-interviews/${token}/submit/`, data),
+};

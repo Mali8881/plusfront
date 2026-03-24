@@ -28,6 +28,9 @@ const Lessons = lazy(() => import('../pages/user/Lessons'));
 const Courses = lazy(() => import('../pages/user/Courses'));
 const Pulse = lazy(() => import('../pages/user/Pulse'));
 const Wiki = lazy(() => import('../pages/user/Wiki'));
+const DeskBooking = lazy(() => import('../pages/user/DeskBooking'));
+const Attendance = lazy(() => import('../pages/user/Attendance'));
+const ExitInterview = lazy(() => import('../pages/public/ExitInterview'));
 
 const AdminUsers = lazy(() => import('../pages/admin/Users'));
 const AdminRoles = lazy(() => import('../pages/admin/Roles'));
@@ -213,6 +216,9 @@ function AppRoutes() {
         <Route path="/pulse" element={<PrivateRoute><Pulse /></PrivateRoute>} />
         <Route path="/wiki" element={<PrivateRoute><Wiki /></PrivateRoute>} />
         <Route path="/salary" element={<SalaryRoute><Salary /></SalaryRoute>} />
+        <Route path="/desk-booking" element={<NonInternRoute><DeskBooking /></NonInternRoute>} />
+        <Route path="/attendance" element={<NonInternRoute><Attendance /></NonInternRoute>} />
+        <Route path="/exit-interview/:token" element={<ExitInterview />} />
         <Route path="/attendance-marks" element={<AttendanceMarksRoute><AttendanceMarks /></AttendanceMarksRoute>} />
 
         <Route path="/admin/overview" element={<AdminRoute><AdminOverview /></AdminRoute>} />

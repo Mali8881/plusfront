@@ -226,3 +226,17 @@ export const metricsAPI = {
 };
 
 
+
+export const desksAPI = {
+  list: (params) => api.get('/v1/desks/', { params }),
+  availability: (params) => api.get('/v1/desks/availability/', { params }),
+  book: (data) => api.post('/v1/desks/bookings/', data),
+  cancel: (id) => api.delete(`/v1/desks/bookings/${id}/`),
+  rooms: (params) => api.get('/v1/desks/rooms/', { params }),
+  roomCreate: (data) => api.post('/v1/desks/rooms/', data),
+  roomDelete: (id) => api.delete(`/v1/desks/rooms/${id}/`),
+  roomOptions: () => api.get('/v1/desks/rooms/options/'),
+  roomsAvailability: (params) => api.get('/v1/desks/rooms/availability/', { params }),
+  roomBook: (data) => api.post('/v1/desks/rooms/bookings/', data),
+  roomCancel: (id) => api.delete(`/v1/desks/rooms/bookings/${id}/`),
+};

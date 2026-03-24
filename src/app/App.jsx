@@ -23,7 +23,6 @@ const Instructions = lazy(() => import('../pages/user/Instructions'));
 const Tasks = lazy(() => import('../pages/user/Tasks'));
 const Salary = lazy(() => import('../pages/user/Salary'));
 const Company = lazy(() => import('../pages/user/Company'));
-const Resources = lazy(() => import('../pages/user/Resources'));
 const Lessons = lazy(() => import('../pages/user/Lessons'));
 const Courses = lazy(() => import('../pages/user/Courses'));
 const Pulse = lazy(() => import('../pages/user/Pulse'));
@@ -209,7 +208,6 @@ function AppRoutes() {
         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
         <Route path="/instructions" element={<PrivateRoute><Instructions /></PrivateRoute>} />
         <Route path="/company" element={<CompanyRoute><Company /></CompanyRoute>} />
-        <Route path="/resources" element={<NonInternRoute><Resources /></NonInternRoute>} />
         <Route path="/lessons" element={<PrivateRoute><Lessons /></PrivateRoute>} />
         <Route path="/courses" element={<PrivateRoute><Courses /></PrivateRoute>} />
         <Route path="/tasks" element={<TasksRoute><Tasks /></TasksRoute>} />

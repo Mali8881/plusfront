@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  AlertTriangle,
   CalendarCheck2,
   CheckCircle2,
   Clock3,
@@ -10,13 +11,14 @@ import {
   PauseCircle,
   PlayCircle,
   Target,
+  TrendingUp,
   Users,
   X,
 } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
-import { attendanceAPI, feedbackAPI, gamificationAPI, newsAPI, onboardingAPI, schedulesAPI, tasksAPI } from '../../api/content';
+import { attendanceAPI, feedbackAPI, gamificationAPI, metricsAPI, newsAPI, onboardingAPI, schedulesAPI, tasksAPI } from '../../api/content';
 import { usersAPI } from '../../api/auth';
 import { buildFeedbackCreatePayload, FEEDBACK_TYPE_CODES, FEEDBACK_TYPE_OPTIONS } from '../../utils/feedback';
 import { ROLE_LABELS, normalizeRole } from '../../utils/roles';
@@ -203,7 +205,7 @@ function roleBanner(role) {
       title: 'Контур управления',
       sub: 'Контролируйте рабочий день, важные события и командную активность из единой точки.',
       action: 'Перейти в панель',
-      path: '/admin/overview',
+      path: '/admin/users',
       bg: 'linear-gradient(135deg, #0F766E 0%, #2563EB 100%)',
     };
   }
@@ -262,6 +264,10 @@ export default function Dashboard() {
   const [workSchedules, setWorkSchedules] = useState([]);
   const [mySchedule, setMySchedule] = useState(null);
   const [weeklyPlans, setWeeklyPlans] = useState([]);
+  const [dailyReport, setDailyReport] = useState(null);
+  const [dailyReportLoading, setDailyReportLoading] = useState(true);
+  const [weekMarks, setWeekMarks] = useState([]);
+  const [teamMetrics, setTeamMetrics] = useState(null);
 
   const banner = roleBanner(role);
 
@@ -384,6 +390,42 @@ export default function Dashboard() {
     }
   };
 
+  const loadDailyReport = async () => {
+    const skipRoles = ['intern', 'admin', 'administrator', 'superadmin', 'systemadmin'];
+    if (skipRoles.includes(role)) { setDailyReportLoading(false); return; }
+    try {
+      const res = await tasksAPI.dailyReports({ date: todayISO() });
+      const list = safeList(res.data);
+      const today = todayISO();
+      setDailyReport(list.find((r) => String(r.date || '').slice(0, 10) === today) || null);
+    } catch {
+      setDailyReport(null);
+    } finally {
+      setDailyReportLoading(false);
+    }
+  };
+
+  const loadWeekMarks = async () => {
+    try {
+      const now = new Date();
+      const res = await attendanceAPI.getMy({ year: now.getFullYear(), month: now.getMonth() + 1 });
+      setWeekMarks(safeList(res.data));
+    } catch {
+      setWeekMarks([]);
+    }
+  };
+
+  const loadTeamMetrics = async () => {
+    const managerRoles = ['department_head', 'admin', 'administrator', 'superadmin', 'systemadmin', 'teamlead', 'projectmanager'];
+    if (!managerRoles.includes(role)) return;
+    try {
+      const res = await metricsAPI.team();
+      setTeamMetrics(res.data || null);
+    } catch {
+      setTeamMetrics(null);
+    }
+  };
+
   useEffect(() => {
     loadNews();
     loadOrgTeam();
@@ -392,6 +434,9 @@ export default function Dashboard() {
     loadStreak();
     loadOnline();
     loadScheduleContext();
+    loadDailyReport();
+    loadWeekMarks();
+    loadTeamMetrics();
   }, [user?.id, role]);
 
   useEffect(() => {
@@ -447,6 +492,27 @@ export default function Dashboard() {
     todayShift.startTime && todayShift.endTime
       ? `${todayShift.startTime} - ${todayShift.endTime}`
       : 'Без рабочего окна';
+
+  const isManagerRole = ['department_head', 'admin', 'administrator', 'superadmin', 'systemadmin', 'teamlead', 'projectmanager'].includes(role);
+
+  const isReportNeeded = !dailyReportLoading && !dailyReport && todayShift.mode !== 'day_off' && !['intern', 'admin', 'administrator', 'superadmin', 'systemadmin'].includes(role);
+
+  const weekCells = useMemo(() => {
+    const monday = mondayOf(new Date());
+    const DAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const dateStr = isoDate(d);
+      return {
+        dateStr,
+        dayLabel: DAY_LABELS[i],
+        isToday: dateStr === todayIsoValue,
+        hasMark: weekMarks.some((m) => String(m.date || '').slice(0, 10) === dateStr),
+        isWeekend: i >= 5,
+      };
+    });
+  }, [weekMarks, todayIsoValue]);
 
   const onlineSummary = useMemo(() => {
     const initial = {
@@ -541,6 +607,12 @@ export default function Dashboard() {
             <span className="badge badge-gray">{shiftModeLabel}</span>
             <span className="badge badge-gray">{shiftWindowLabel}</span>
             {!scheduleLoading ? <span className="badge badge-gray">{shiftSourceLabel}</span> : null}
+            {!scheduleLoading && (
+              <span className={`badge ${todayShift.mode === 'online' ? 'badge-blue' : todayShift.mode === 'office' ? 'badge-green' : 'badge-gray'}`} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <MapPin size={11} />
+                {todayShift.mode === 'online' ? 'Онлайн — без геолокации' : todayShift.mode === 'office' ? 'Офис — геолокация / Wi-Fi' : 'Выходной — отметка не нужна'}
+              </span>
+            )}
           </div>
           <div className="crm-shift-card__note">
             {todayShift.mode === 'online'
@@ -568,6 +640,21 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {isReportNeeded && (
+        <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 12, padding: '14px 20px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <AlertTriangle size={20} style={{ color: '#D97706', flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 700, color: '#92400E', fontSize: 15 }}>Ежедневный отчёт не сдан</div>
+              <div style={{ fontSize: 13, color: '#B45309', marginTop: 2 }}>Заполните отчёт за сегодня, чтобы не прерывать стрик активности.</div>
+            </div>
+          </div>
+          <button className="btn btn-sm" style={{ background: '#D97706', color: 'white', border: 'none', whiteSpace: 'nowrap', fontWeight: 600 }} type="button" onClick={() => navigate('/tasks')}>
+            Заполнить отчёт
+          </button>
+        </div>
+      )}
 
       <div className="crm-dashboard-grid">
         <div className="card">
@@ -662,8 +749,29 @@ export default function Dashboard() {
             {streakLoading ? <div className="text-muted">Считаем streak...</div> : null}
             {!streakLoading ? (
               <div className="crm-streak">
-                <div className="crm-streak__value">{Number(streak?.current_streak || 0)}</div>
-                <div className="crm-streak__label">дней подряд</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                  <div className="crm-streak__value">{Number(streak?.current_streak || 0)}</div>
+                  <div className="crm-streak__label">дней подряд</div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, margin: '12px 0' }}>
+                  {weekCells.map((cell) => (
+                    <div key={cell.dateStr} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flex: 1 }}>
+                      <div style={{
+                        width: '100%',
+                        aspectRatio: '1',
+                        borderRadius: 6,
+                        background: cell.hasMark ? '#16A34A' : cell.isToday ? '#DBEAFE' : cell.isWeekend ? '#F8FAFC' : '#F1F5F9',
+                        border: cell.isToday ? '2px solid #2563EB' : '2px solid transparent',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                        {cell.hasMark && <CheckCircle2 size={12} style={{ color: 'white' }} />}
+                      </div>
+                      <span style={{ fontSize: 10, color: cell.isToday ? '#2563EB' : 'var(--gray-500)', fontWeight: cell.isToday ? 700 : 400 }}>{cell.dayLabel}</span>
+                    </div>
+                  ))}
+                </div>
                 <div className="crm-streak__meta">
                   Лучший результат: {Number(streak?.longest_streak || 0)} · Последний отчет: {streak?.last_report_date || '—'}
                 </div>
@@ -674,7 +782,7 @@ export default function Dashboard() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-muted" style={{ marginTop: 10 }}>Первый бейдж появится после стабильной активности.</div>
+                  <div className="text-muted" style={{ marginTop: 8 }}>Первый бейдж появится после стабильной активности.</div>
                 )}
               </div>
             ) : null}
@@ -750,6 +858,36 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {isManagerRole && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <span className="card-title"><TrendingUp size={16} /> Быстрые метрики команды</span>
+          </div>
+          <div className="card-body">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+              <div style={{ padding: '12px 16px', background: '#F0FDF4', borderRadius: 10, border: '1px solid #BBF7D0' }}>
+                <div style={{ fontSize: 11, color: '#166534', fontWeight: 600, marginBottom: 4 }}>Отметились сегодня</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: '#15803D' }}>{onlineRows.length > 0 ? onlineRows.length : '—'}</div>
+              </div>
+              <div style={{ padding: '12px 16px', background: onlineSummary.late > 0 ? '#FEF2F2' : '#F8FAFC', borderRadius: 10, border: `1px solid ${onlineSummary.late > 0 ? '#FECACA' : '#E2E8F0'}` }}>
+                <div style={{ fontSize: 11, color: onlineSummary.late > 0 ? '#991B1B' : '#64748B', fontWeight: 600, marginBottom: 4 }}>Опоздали сегодня</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: onlineSummary.late > 0 ? '#DC2626' : '#334155' }}>{onlineRows.length > 0 ? onlineSummary.late : '—'}</div>
+              </div>
+              <div style={{ padding: '12px 16px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 11, color: '#64748B', fontWeight: 600, marginBottom: 4 }}>Онлайн сегодня</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: '#334155' }}>{onlineRows.length > 0 ? onlineSummary.online : '—'}</div>
+              </div>
+              {teamMetrics?.overdue_tasks_count != null && (
+                <div style={{ padding: '12px 16px', background: teamMetrics.overdue_tasks_count > 0 ? '#FEF2F2' : '#F0FDF4', borderRadius: 10, border: `1px solid ${teamMetrics.overdue_tasks_count > 0 ? '#FECACA' : '#BBF7D0'}` }}>
+                  <div style={{ fontSize: 11, color: teamMetrics.overdue_tasks_count > 0 ? '#991B1B' : '#166534', fontWeight: 600, marginBottom: 4 }}>Просрочено задач</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: teamMetrics.overdue_tasks_count > 0 ? '#DC2626' : '#15803D' }}>{teamMetrics.overdue_tasks_count}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="card-header">
           <span className="card-title"><Newspaper size={16} /> Важные новости</span>
@@ -785,14 +923,14 @@ export default function Dashboard() {
             <span className="card-title">Быстрые действия</span>
           </div>
           <div className="card-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button className="btn btn-primary btn-sm" type="button" onClick={() => navigate('/resources')}>
-              <MapPin size={14} /> Забронировать ресурс
+            <button className="btn btn-primary btn-sm" type="button" onClick={() => navigate('/desk-booking')}>
+              <MapPin size={14} /> Забронировать место
             </button>
-            <button className="btn btn-secondary btn-sm" type="button" onClick={() => navigate('/resources?focus=bookings')}>
-              <MapPin size={14} /> Мои брони
+            <button className="btn btn-secondary btn-sm" type="button" onClick={() => navigate('/attendance')}>
+              <CalendarCheck2 size={14} /> Посещаемость
             </button>
-            <button className="btn btn-secondary btn-sm" type="button" onClick={() => navigate('/schedule')}>
-              <CalendarCheck2 size={14} /> Мой график
+            <button className="btn btn-secondary btn-sm" type="button" onClick={() => navigate('/tasks')}>
+              <Target size={14} /> Мои задачи
             </button>
           </div>
         </div>

@@ -47,7 +47,6 @@ const NAV_EMPLOYEE = [
   { label: 'Бронирование мест', icon: Monitor, path: '/desk-booking' },
   { label: 'Компания', icon: Users, path: '/company' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
   { label: 'Инструкция', icon: BookOpen, path: '/instructions' },
 ];
 
@@ -62,7 +61,6 @@ const NAV_PM = [
   { label: 'Курсы', icon: BookOpen, path: '/courses' },
   { label: 'Компания', icon: Users, path: '/company' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
   { label: 'Инструкция', icon: BookOpen, path: '/instructions' },
 ];
 
@@ -79,11 +77,9 @@ const NAV_DEPARTMENT_HEAD = [
   { label: 'Посещаемость', icon: ClipboardList, path: '/attendance' },
   { label: 'Бронирование мест', icon: Monitor, path: '/desk-booking' },
   { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
   { label: 'Зарплата', icon: Wallet, path: '/salary' },
   { section: 'УПРАВЛЕНИЕ' },
-  { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
   { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
   { label: 'Онбординг / Отчёты', icon: GraduationCap, path: '/admin/onboarding' },
@@ -103,11 +99,9 @@ const NAV_ADMIN = [
   { label: 'Посещаемость', icon: ClipboardList, path: '/attendance' },
   { label: 'Бронирование мест', icon: Monitor, path: '/desk-booking' },
   { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
   { label: 'Зарплата', icon: Wallet, path: '/salary' },
   { section: 'УПРАВЛЕНИЕ' },
-  { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
   { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
   { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
@@ -122,9 +116,7 @@ const NAV_SUPERADMIN = [
   { label: 'Посещаемость', icon: ClipboardList, path: '/attendance' },
   { label: 'Бронирование мест', icon: Monitor, path: '/desk-booking' },
   { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
   { section: 'УПРАВЛЕНИЕ' },
-  { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
   { label: 'Роли и права', icon: Shield, path: '/admin/roles' },
   { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
@@ -146,10 +138,8 @@ const NAV_ADMINISTRATOR = [
   { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
   { label: 'База знаний', icon: FileText, path: '/wiki' },
   { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
   { label: 'Зарплата', icon: Wallet, path: '/salary' },
   { section: 'УПРАВЛЕНИЕ' },
-  { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
   { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
   { label: 'Онбординг', icon: GraduationCap, path: '/admin/onboarding' },
@@ -182,10 +172,7 @@ export default function Sidebar() {
   const nav = baseNav;
 
   const handleHome = () => {
-    if (['department_head', 'admin', 'administrator', 'superadmin', 'systemadmin'].includes(String(user?.role || '').toLowerCase())) {
-      navigate('/admin/overview');
-    }
-    else navigate('/dashboard');
+    navigate('/dashboard');
   };
 
   const translateNav = (label) => {

@@ -17,7 +17,6 @@ const ResetPassword = lazy(() => import('../pages/auth/ResetPassword'));
 const Dashboard = lazy(() => import('../pages/user/Dashboard'));
 const Onboarding = lazy(() => import('../pages/user/Onboarding'));
 const Regulations = lazy(() => import('../pages/user/Regulations'));
-const Schedule = lazy(() => import('../pages/user/Schedule'));
 const Profile = lazy(() => import('../pages/user/Profile'));
 const Instructions = lazy(() => import('../pages/user/Instructions'));
 const Tasks = lazy(() => import('../pages/user/Tasks'));
@@ -36,7 +35,6 @@ const AdminRoles = lazy(() => import('../pages/admin/Roles'));
 const AdminDepartmentsSubdivisions = lazy(() => import('../pages/admin/DepartmentsSubdivisions'));
 const AdminContent = lazy(() => import('../pages/admin/Content'));
 const AdminOnboarding = lazy(() => import('../pages/admin/Onboarding'));
-const AdminOverview = lazy(() => import('../pages/admin/Overview'));
 const AdminSchedules = lazy(() => import('../pages/admin/Schedules'));
 const AdminFeedback = lazy(() => import('../pages/admin/Feedback'));
 const AdminSystem = lazy(() => import('../pages/admin/System'));
@@ -69,7 +67,6 @@ function RouteLoader() {
 function HomeRedirect() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (hasAnyRole(user.role, ADMIN_LIKE_ROLES)) return <Navigate to="/admin/overview" replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -89,7 +86,7 @@ function ContentManageRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (!CONTENT_MANAGE_ROLES.includes(String(user.role || '').toLowerCase())) {
-    return <Navigate to="/admin/overview" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 }
@@ -97,7 +94,7 @@ function ContentManageRoute({ children }) {
 function TrueSuperAdminRoute({ children }) {
   const { user, isSuperAdmin } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (!isSuperAdmin) return <Navigate to="/admin/overview" replace />;
+  if (!isSuperAdmin) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -113,7 +110,7 @@ function InternsManageRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (!hasAnyRole(user.role, ['admin', 'administrator', 'superadmin', 'systemadmin'])) {
-    return <Navigate to="/admin/overview" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 }
@@ -159,7 +156,7 @@ function AttendanceMarksRoute({ children }) {
 function RolesRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (!hasAnyRole(user.role, ['superadmin'])) return <Navigate to="/admin/overview" replace />;
+  if (!hasAnyRole(user.role, ['superadmin'])) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -167,7 +164,7 @@ function DepartmentsAdminRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (!hasAnyRole(user.role, ['administrator', 'superadmin', 'systemadmin'])) {
-    return <Navigate to="/admin/overview" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 }
@@ -175,7 +172,7 @@ function DepartmentsAdminRoute({ children }) {
 function PublicOnlyRoute({ children }) {
   const { user } = useAuth();
   if (!user) return children;
-  if (hasAnyRole(user.role, ADMIN_LIKE_ROLES)) return <Navigate to="/admin/overview" replace />;
+  if (hasAnyRole(user.role, ADMIN_LIKE_ROLES)) return <Navigate to="/dashboard" replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -204,7 +201,6 @@ function AppRoutes() {
         <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/onboarding" element={<PrivateRoute><Onboarding /></PrivateRoute>} />
         <Route path="/regulations" element={<NonInternRoute><Regulations /></NonInternRoute>} />
-        <Route path="/schedule" element={<NonInternRoute><Schedule /></NonInternRoute>} />
         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
         <Route path="/instructions" element={<PrivateRoute><Instructions /></PrivateRoute>} />
         <Route path="/company" element={<CompanyRoute><Company /></CompanyRoute>} />
@@ -219,7 +215,6 @@ function AppRoutes() {
         <Route path="/exit-interview/:token" element={<ExitInterview />} />
         <Route path="/attendance-marks" element={<AttendanceMarksRoute><AttendanceMarks /></AttendanceMarksRoute>} />
 
-        <Route path="/admin/overview" element={<AdminRoute><AdminOverview /></AdminRoute>} />
         <Route path="/admin/users" element={<AdminRoute><AdminUsers /></AdminRoute>} />
         <Route path="/admin/roles" element={<RolesRoute><AdminRoles /></RolesRoute>} />
         <Route path="/admin/departments-subdivisions" element={<DepartmentsAdminRoute><AdminDepartmentsSubdivisions /></DepartmentsAdminRoute>} />

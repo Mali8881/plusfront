@@ -14,7 +14,6 @@ import {
 const Login = lazy(() => import('../pages/auth/Login'));
 const ForgotPassword = lazy(() => import('../pages/auth/ForgotPassword'));
 const ResetPassword = lazy(() => import('../pages/auth/ResetPassword'));
-const ExitInterview = lazy(() => import('../pages/public/ExitInterview'));
 const Dashboard = lazy(() => import('../pages/user/Dashboard'));
 const Onboarding = lazy(() => import('../pages/user/Onboarding'));
 const Regulations = lazy(() => import('../pages/user/Regulations'));
@@ -29,7 +28,6 @@ const Lessons = lazy(() => import('../pages/user/Lessons'));
 const Courses = lazy(() => import('../pages/user/Courses'));
 const Pulse = lazy(() => import('../pages/user/Pulse'));
 const Wiki = lazy(() => import('../pages/user/Wiki'));
-const DeskBooking = lazy(() => import('../pages/user/DeskBooking'));
 
 const AdminUsers = lazy(() => import('../pages/admin/Users'));
 const AdminRoles = lazy(() => import('../pages/admin/Roles'));
@@ -112,7 +110,7 @@ function OnboardingManageRoute({ children }) {
 function InternsManageRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (!hasAnyRole(user.role, ['admin', 'administrator', 'superadmin', 'systemadmin', 'projectmanager', 'department_head'])) {
+  if (!hasAnyRole(user.role, ['admin', 'administrator', 'superadmin', 'systemadmin'])) {
     return <Navigate to="/admin/overview" replace />;
   }
   return children;
@@ -200,13 +198,11 @@ function AppRoutes() {
         <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
         <Route path="/forgot-password" element={<PublicOnlyRoute><ForgotPassword /></PublicOnlyRoute>} />
         <Route path="/reset-password" element={<PublicOnlyRoute><ResetPassword /></PublicOnlyRoute>} />
-        <Route path="/exit-interview/:token" element={<ExitInterview />} />
 
         <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/onboarding" element={<PrivateRoute><Onboarding /></PrivateRoute>} />
         <Route path="/regulations" element={<NonInternRoute><Regulations /></NonInternRoute>} />
         <Route path="/schedule" element={<NonInternRoute><Schedule /></NonInternRoute>} />
-        <Route path="/desks" element={<NonInternRoute><DeskBooking /></NonInternRoute>} />
         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
         <Route path="/instructions" element={<PrivateRoute><Instructions /></PrivateRoute>} />
         <Route path="/company" element={<CompanyRoute><Company /></CompanyRoute>} />

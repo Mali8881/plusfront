@@ -6,13 +6,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 import { isInternRole } from '../../utils/roles';
 import LockedVideoPlayer, { isLockedVideoCandidate } from '../../components/LockedVideoPlayer';
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Download, ExternalLink, X } from 'lucide-react';
-import MainLayout from '../../layouts/MainLayout';
-import api from '../../api/axios';
-import { regulationsAPI } from '../../api/content';
-import { useAuth } from '../../context/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
 let BACKEND_ORIGIN = 'http://127.0.0.1:8000';
@@ -134,15 +127,6 @@ export default function Regulations() {
   const [actionMsg, setActionMsg] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [previewDoc, setPreviewDoc] = useState(null);
-  const navigate = useNavigate();
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState(null);
-  const [downloadBusyId, setDownloadBusyId] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState('');
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState('');
-  const isAdminLike = ['admin', 'department_head', 'superadmin'].includes(String(user?.role || ''));
 
   const [quizDoc, setQuizDoc] = useState(null);
   const [quizAnswers, setQuizAnswers] = useState([]);
@@ -150,46 +134,6 @@ export default function Regulations() {
   const loadDocs = async () => {
     setLoading(true);
     setError('');
-  const sorted = useMemo(() => items.slice(), [items]);
-
-  useEffect(() => {
-    let isAlive = true;
-    let objectUrl = '';
-
-    const loadPreview = async () => {
-      if (!selected?.id || selected?.type === 'link') {
-        setPreviewUrl('');
-        setPreviewError('');
-        setPreviewLoading(false);
-        return;
-      }
-      setPreviewLoading(true);
-      setPreviewError('');
-      setPreviewUrl('');
-      try {
-        const res = await api.get(`/v1/regulations/${selected.id}/download/`, { responseType: 'blob' });
-        if (!isAlive) return;
-        objectUrl = window.URL.createObjectURL(res.data);
-        setPreviewUrl(objectUrl);
-      } catch {
-        if (!isAlive) return;
-        setPreviewError('�� ������� ��������� ������������. ����������� ������ "�������".');
-      } finally {
-        if (isAlive) setPreviewLoading(false);
-      }
-    };
-
-    loadPreview();
-
-    return () => {
-      isAlive = false;
-      if (objectUrl) window.URL.revokeObjectURL(objectUrl);
-    };
-  }, [selected?.id]);
-
-  const downloadRegulation = async (reg) => {
-    if (!reg?.id || reg?.type !== 'file') return;
-    setDownloadBusyId(reg.id);
     try {
       const res = await regulationsAPI.list();
       setDocs(safeList(res.data).map(normalizeReg));
@@ -327,21 +271,7 @@ export default function Regulations() {
         <div>
           <div className="page-title">{tr('Внутренние регламенты и инструкции')}</div>
           <div className="page-subtitle">{tr('Список документов, подтверждение прочтения, quiz и отчеты')}</div>
-    <MainLayout title="���������� ��������">
-      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div>
-          <div className="page-title">���������� ���������� � ����������</div>
-          <div className="page-subtitle">������ ���������� �� backend</div>
         </div>
-        {isAdminLike && (
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={() => navigate('/admin/content?tab=regulations')}
-          >
-            �������� �����������
-          </button>
-        )}
       </div>
 
       {error && <div style={{ marginBottom: 14, color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
@@ -390,35 +320,6 @@ export default function Regulations() {
                 {!doc.isAcknowledged && (
                   <button className="btn btn-secondary btn-sm" onClick={() => acknowledge(doc)} disabled={busyId === doc.id}>
                     <CheckCircle2 size={13} /> {tr('Отметить прочтение')}
-      {loading ? (
-        <div className="card"><div className="card-body">��������...</div></div>
-      ) : (
-        <div className="reg-grid">
-          {sorted.map((reg) => (
-            <div key={reg.id} className="reg-card">
-              <div className="reg-title">{reg.title}</div>
-              <div className="reg-action" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                <button
-                  className="btn btn-outline btn-sm"
-                  type="button"
-                  onClick={() => {
-                    if (reg.type === 'link' && reg.content) {
-                      window.open(reg.content, '_blank', 'noopener,noreferrer');
-                      return;
-                    }
-                    setSelected(reg);
-                  }}
-                >
-                  <ExternalLink size={13} /> ���������
-                </button>
-                {reg.type === 'file' && (
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    type="button"
-                    onClick={() => downloadRegulation(reg)}
-                    disabled={downloadBusyId === reg.id}
-                  >
-                    <Download size={13} /> �������
                   </button>
                 )}
 
@@ -500,9 +401,6 @@ export default function Regulations() {
                 )}
             </div>
           </div>
-          {sorted.length === 0 ? (
-            <div className="card"><div className="card-body">����������� ���� ���.</div></div>
-          ) : null}
         </div>
       )}
 
@@ -560,30 +458,6 @@ export default function Regulations() {
                       </div>
                     );
                   })}
-            <div className="modal-body">
-              {previewLoading ? (
-                <div style={{ fontSize: 14, color: 'var(--gray-600)' }}>�������� �������������...</div>
-              ) : previewUrl ? (
-                <iframe
-                  title={selected.title}
-                  src={previewUrl}
-                  style={{ width: '100%', height: '65vh', border: '1px solid var(--gray-200)', borderRadius: '10px' }}
-                />
-              ) : previewError ? (
-                <div style={{ fontSize: 14, color: 'var(--gray-600)' }}>{previewError}</div>
-              ) : (
-                <div
-                  style={{
-                    maxHeight: '65vh',
-                    overflowY: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    lineHeight: 1.6,
-                    border: '1px solid var(--gray-200)',
-                    borderRadius: '10px',
-                    padding: 12,
-                  }}
-                >
-                  {selected.description || '��� �����������.'}
                 </div>
               ) : (
                 <div style={{ color: 'var(--gray-500)' }}>{tr('Вопросы теста не настроены.')}</div>
@@ -601,24 +475,9 @@ export default function Regulations() {
                 {tr('Отправить ответ')}
               </button>
             </div>
-            {selected.type === 'file' && selected.content && (
-              <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
-                <button
-                  className="btn btn-primary btn-sm"
-                  type="button"
-                  onClick={() => downloadRegulation(selected)}
-                  disabled={downloadBusyId === selected.id}
-                >
-                  <Download size={13} /> �������
-                </button>
-              </div>
-            )}
           </div>
         </div>
       )}
     </MainLayout>
   );
 }
-
-
-

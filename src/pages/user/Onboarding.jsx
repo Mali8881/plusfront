@@ -27,8 +27,8 @@ const normStatus = (value) => {
 const toAbsoluteMedia = (url) => {
   if (!url) return '';
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const apiBase = import.meta.env.VITE_API_URL || '/api';
-  const origin = apiBase.replace(/\/api(?:\/v\d+)?\/?$/, '');
+  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+  const origin = apiBase.replace(/\/api\/?$/, '');
   return `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
 };
 
@@ -56,13 +56,6 @@ function materialTypeLabel(type) {
   return 'Текст';
 }
 
-function formatSeconds(value) {
-  const total = Math.max(0, Number(value || 0));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
-
 export default function Onboarding() {
   const location = useLocation();
   const [tab, setTab] = useState('onboarding');
@@ -82,11 +75,6 @@ export default function Onboarding() {
   });
   const [feedbackDrafts, setFeedbackDrafts] = useState({});
   const [quizDrafts, setQuizDrafts] = useState({});
-  const [quizStartedAt, setQuizStartedAt] = useState({});
-  const [quizCooldownUntil, setQuizCooldownUntil] = useState({});
-  const [quizNow, setQuizNow] = useState(Date.now());
-  const [regulationPreviewStartedAt, setRegulationPreviewStartedAt] = useState({});
-  const [regulationTimeSpent, setRegulationTimeSpent] = useState({});
   const [stepView, setStepView] = useState({});
   const [activeRegIndex, setActiveRegIndex] = useState(0);
   const [selectedMaterial, setSelectedMaterial] = useState(null);
@@ -230,11 +218,6 @@ export default function Onboarding() {
   }, [location.search]);
 
   useEffect(() => {
-    const timer = setInterval(() => setQuizNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
     if (!activeDayId) return;
     setStepView({});
     setActiveRegIndex(0);
@@ -253,33 +236,6 @@ export default function Onboarding() {
       return prev > target ? target : prev;
     });
   }, [regulations]);
-
-  useEffect(() => {
-    if (!regulations.length) return;
-    setRegulationTimeSpent((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      regulations.forEach((item) => {
-        const serverSpent = Number(item.read_time_spent_seconds || 0);
-        if (next[item.id] !== serverSpent) {
-          next[item.id] = serverSpent;
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
-  }, [regulations]);
-
-  useEffect(() => {
-    if (!activeRegulation) return;
-    const currentStep = stepView[activeRegulation.id] || 1;
-    const timeLimit = Number(activeRegulation.quiz_time_limit_seconds || 0);
-    if (currentStep === 3 && timeLimit > 0) {
-      setQuizStartedAt((prev) => (
-        prev[activeRegulation.id] ? prev : { ...prev, [activeRegulation.id]: Date.now() }
-      ));
-    }
-  }, [activeRegulation?.id, activeRegulation?.quiz_time_limit_seconds, stepView]);
 
   useEffect(() => {
     if (!activeDay) return;
@@ -306,35 +262,7 @@ export default function Onboarding() {
     setBusyMap((prev) => ({ ...prev, [key]: value }));
   };
 
-  const getRegulationTimeSpentSeconds = (regulationId, nowValue = Date.now()) => {
-    const baseSeconds = Number(regulationTimeSpent[regulationId] || 0);
-    const startedAt = regulationPreviewStartedAt[regulationId];
-    if (!startedAt) return baseSeconds;
-    return baseSeconds + Math.max(0, Math.floor((nowValue - startedAt) / 1000));
-  };
-
-  const startRegulationPreviewTimer = (regulationId, nowValue = Date.now()) => {
-    if (!regulationId) return;
-    setRegulationPreviewStartedAt((prev) => (
-      prev[regulationId] ? prev : { ...prev, [regulationId]: nowValue }
-    ));
-  };
-
-  const stopRegulationPreviewTimer = (regulationId, nowValue = Date.now()) => {
-    if (!regulationId) return 0;
-    const totalSeconds = getRegulationTimeSpentSeconds(regulationId, nowValue);
-    setRegulationTimeSpent((prev) => ({ ...prev, [regulationId]: totalSeconds }));
-    setRegulationPreviewStartedAt((prev) => {
-      if (!prev[regulationId]) return prev;
-      const next = { ...prev };
-      delete next[regulationId];
-      return next;
-    });
-    return totalSeconds;
-  };
-
   const closeRegulationModal = () => {
-    stopRegulationPreviewTimer(selectedRegulation?.id, Date.now());
     setSelectedRegulation(null);
     if (selectedRegulationBlobUrl) {
       window.URL.revokeObjectURL(selectedRegulationBlobUrl);
@@ -444,24 +372,14 @@ export default function Onboarding() {
     }
   };
 
-  const markRegulationRead = async (regulation) => {
-    const regulationId = regulation?.id;
-    if (!regulationId) return;
-    const minReadSeconds = Number(regulation?.min_read_seconds || 45);
-    const timeSpent = getRegulationTimeSpentSeconds(regulationId, Date.now());
-    if (timeSpent < minReadSeconds) {
-      setError(`Проведите с регламентом не менее ${minReadSeconds} секунд. Сейчас: ${formatSeconds(timeSpent)}.`);
-      return;
-    }
-
+  const markRegulationRead = async (regulationId) => {
     markBusy(`read-${regulationId}`, true);
     setError('');
     try {
-      await regulationsAPI.markRead(regulationId, { time_spent: timeSpent });
-      setRegulationTimeSpent((prev) => ({ ...prev, [regulationId]: timeSpent }));
+      await regulationsAPI.markRead(regulationId);
       await loadDayDetail(activeDayId, true);
     } catch (e) {
-      setError(e.response?.data?.time_spent?.[0] || e.response?.data?.detail || 'Не удалось отметить регламент как прочитанный.');
+      setError(e.response?.data?.detail || 'Не удалось отметить регламент как прочитанный.');
     } finally {
       markBusy(`read-${regulationId}`, false);
     }
@@ -505,98 +423,32 @@ export default function Onboarding() {
       return;
     }
 
-    const timeLimitSeconds = Number(regulation.quiz_time_limit_seconds || 0);
-    const now = Date.now();
-    const existingStartedAt = quizStartedAt[regulationId];
-    const startedAtValue = timeLimitSeconds > 0 ? (existingStartedAt || now) : null;
-    if (timeLimitSeconds > 0) {
-      if (!existingStartedAt) {
-        setQuizStartedAt((prev) => ({ ...prev, [regulationId]: startedAtValue }));
-      }
-      const elapsed = Math.floor((now - startedAtValue) / 1000);
-      if (elapsed > timeLimitSeconds) {
-        setError('Время на тест истекло. Откройте тест заново.');
-        setQuizStartedAt((prev) => {
-          const next = { ...prev };
-          delete next[regulationId];
-          return next;
-        });
-        return;
-      }
-    }
-
-    const cooldownUntil = quizCooldownUntil[regulationId];
-    if (cooldownUntil && cooldownUntil > now) {
-      const remaining = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
-      setError(`Повторная попытка будет доступна через ${formatSeconds(remaining)}.`);
-      return;
-    }
-
     markBusy(`quiz-${regulationId}`, true);
     setError('');
     try {
-      const basePayload = quizQuestions.length > 0 ? { answers } : { answer };
-      const payload = startedAtValue ? { ...basePayload, started_at: new Date(startedAtValue).toISOString() } : basePayload;
+      const payload = quizQuestions.length > 0 ? { answers } : { answer };
       const res = await regulationsAPI.submitQuiz(regulationId, payload);
       if (!res.data?.is_passed) {
         setError(res.data?.detail || 'Ответ не принят. Попробуйте еще раз.');
-        setQuizStartedAt((prev) => {
-          const next = { ...prev };
-          delete next[regulationId];
-          return next;
-        });
         if (res.data?.restart_required) {
           setStepView((prev) => ({ ...prev, [regulationId]: 1 }));
         }
       } else {
         setQuizDrafts((prev) => ({ ...prev, [regulationId]: quizQuestions.length > 0 ? {} : '' }));
-        setQuizStartedAt((prev) => {
-          const next = { ...prev };
-          delete next[regulationId];
-          return next;
-        });
-        setQuizCooldownUntil((prev) => {
-          const next = { ...prev };
-          delete next[regulationId];
-          return next;
-        });
       }
       await loadDayDetail(activeDayId, true);
     } catch (e) {
-      const status = e.response?.status;
-      const retryAtRaw = e.response?.data?.retry_at;
-      if (status === 429 && retryAtRaw) {
-        const retryAt = new Date(retryAtRaw).getTime();
-        if (Number.isFinite(retryAt)) {
-          setQuizCooldownUntil((prev) => ({ ...prev, [regulationId]: retryAt }));
-          const remaining = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
-          setError(`Повторная попытка будет доступна через ${formatSeconds(remaining)}.`);
-          return;
-        }
-      }
-      if (String(e.response?.data?.detail || '').toLowerCase().includes('time limit')) {
-        setError('Время на тест истекло. Откройте тест заново.');
-        setQuizStartedAt((prev) => {
-          const next = { ...prev };
-          delete next[regulationId];
-          return next;
-        });
-        return;
-      }
       setError(e.response?.data?.detail || 'Не удалось отправить тест по регламенту.');
     } finally {
       markBusy(`quiz-${regulationId}`, false);
     }
   };
+
   const openRegulationPreview = async (regulation) => {
     if (!regulation) return;
-    if (selectedRegulation?.id && selectedRegulation.id !== regulation.id) {
-      stopRegulationPreviewTimer(selectedRegulation.id, Date.now());
-    }
     if (regulation.type === 'link' && regulation.content) {
       setSelectedRegulationBlobUrl('');
       setSelectedRegulation(regulation);
-      startRegulationPreviewTimer(regulation.id, Date.now());
       return;
     }
     markBusy(`preview-${regulation.id}`, true);
@@ -611,7 +463,6 @@ export default function Onboarding() {
       const blobUrl = window.URL.createObjectURL(res.data);
       setSelectedRegulationBlobUrl(blobUrl);
       setSelectedRegulation(regulation);
-      startRegulationPreviewTimer(regulation.id, Date.now());
     } catch {
       setError('Не удалось открыть регламент. Попробуйте скачать файл.');
     } finally {
@@ -1008,26 +859,13 @@ export default function Onboarding() {
                         const hasPassedQuiz = !!regulation.has_passed_quiz;
                         const { question: parsedQuizQuestion, options: quizOptions } = parseQuizQuestion(regulation.quiz_question);
                         const quizQuestions = Array.isArray(regulation.quiz_questions) ? regulation.quiz_questions : [];
-                        const timeLimitSeconds = Number(regulation.quiz_time_limit_seconds || 0);
-                        const startedAt = quizStartedAt[regulation.id];
-                        const elapsedSeconds = startedAt ? Math.floor((quizNow - startedAt) / 1000) : 0;
-                        const remainingSeconds = timeLimitSeconds > 0 ? Math.max(0, timeLimitSeconds - elapsedSeconds) : null;
-                        const isTimeExpired = timeLimitSeconds > 0 && startedAt && remainingSeconds <= 0;
-                        const cooldownUntil = quizCooldownUntil[regulation.id];
-                        const cooldownRemaining = cooldownUntil ? Math.max(0, Math.ceil((cooldownUntil - quizNow) / 1000)) : 0;
-                        const isCooldownActive = cooldownUntil && cooldownUntil > quizNow;
                         const currentStep = stepView[regulation.id] || 1;
                         const previousRegulationsDone = index === 0 || regulations
                           .slice(0, index)
                           .every((item) => item.is_read && item.has_feedback && item.has_passed_quiz);
-                        const minReadSeconds = Number(regulation.min_read_seconds || 45);
-                        const currentReadSeconds = getRegulationTimeSpentSeconds(regulation.id, quizNow);
-                        const readSecondsLeft = Math.max(0, minReadSeconds - currentReadSeconds);
-                        const hasVersionUpdate = !!(regulation.requires_reread || regulation.requires_reacknowledgement);
                         const canDoStep1 = previousRegulationsDone;
                         const canDoStep2 = previousRegulationsDone && isRead;
                         const canDoStep3 = previousRegulationsDone && hasFeedback && requiresQuiz;
-                        const canAttemptQuiz = canDoStep3 && !hasPassedQuiz && !isCooldownActive && !isTimeExpired;
                         const goToStep = (step) => setStepView((prev) => ({ ...prev, [regulation.id]: step }));
                         return (
                           <div
@@ -1041,11 +879,6 @@ export default function Onboarding() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start', marginBottom: 10 }}>
                               <div>
                                 <div style={{ fontSize: 16, fontWeight: 700 }}>Шаг {index + 1}: {regulation.title}</div>
-                                <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4 }}>
-                                  Версия {regulation.version}
-                                  {regulation.read_version ? ` • вы читали v${regulation.read_version}` : ' • еще не прочитан'}
-                                  {regulation.acknowledged_version ? ` • подпись v${regulation.acknowledged_version}` : ''}
-                                </div>
                               </div>
                               {regulationUrl ? (
                                 <div style={{ display: 'flex', gap: 8 }}>
@@ -1070,36 +903,6 @@ export default function Onboarding() {
                             </div>
 
                             <div style={{ display: 'grid', gap: 12 }}>
-                              {hasVersionUpdate && (
-                                <div
-                                  style={{
-                                    border: '1px solid #bfdbfe',
-                                    background: '#eff6ff',
-                                    color: '#1e3a8a',
-                                    borderRadius: 8,
-                                    padding: 10,
-                                    fontSize: 13,
-                                  }}
-                                >
-                                  Для этого регламента вышла новая версия. Нужно заново прочитать документ
-                                  {regulation.requires_reacknowledgement ? ' и повторно подтвердить ознакомление.' : '.'}
-                                </div>
-                              )}
-                              {String(regulation.change_log || '').trim() && (
-                                <div
-                                  style={{
-                                    border: '1px solid var(--gray-200)',
-                                    background: 'var(--gray-50)',
-                                    borderRadius: 8,
-                                    padding: 10,
-                                  }}
-                                >
-                                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Что изменилось в версии {regulation.version}</div>
-                                  <div style={{ fontSize: 13, color: 'var(--gray-700)', whiteSpace: 'pre-wrap' }}>
-                                    {regulation.change_log}
-                                  </div>
-                                </div>
-                              )}
                               {!previousRegulationsDone && (
                                 <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
                                   Этот регламент откроется после полного завершения предыдущего.
@@ -1110,19 +913,15 @@ export default function Onboarding() {
                                   <div className="card-body" style={{ padding: 12 }}>
                                     <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Шаг 1. Отметить, что прочитано</div>
                                     <div style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 10 }}>
-                                      Откройте регламент через кнопку <b>Подробнее</b>, проведите в документе не меньше {minReadSeconds} секунд, затем отметьте как прочитано.
-                                    </div>
-                                    <div style={{ fontSize: 12, color: readSecondsLeft > 0 ? 'var(--gray-600)' : '#15803d', marginBottom: 10 }}>
-                                      Ознакомление: <b>{formatSeconds(currentReadSeconds)}</b> из {formatSeconds(minReadSeconds)}
-                                      {readSecondsLeft > 0 ? ` • осталось ${formatSeconds(readSecondsLeft)}` : ' • можно подтверждать'}
+                                      Откройте регламент через кнопку <b>Подробнее</b>, затем отметьте как прочитано.
                                     </div>
                                     <button
                                       className="btn btn-secondary"
-                                      disabled={!canDoStep1 || isRead || readSecondsLeft > 0 || !!busyMap[`read-${regulation.id}`]}
-                                      onClick={() => markRegulationRead(regulation)}
+                                      disabled={!canDoStep1 || isRead || !!busyMap[`read-${regulation.id}`]}
+                                      onClick={() => markRegulationRead(regulation.id)}
                                       style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                                     >
-                                      {isRead ? 'Прочитано' : readSecondsLeft > 0 ? 'Недостаточно времени' : 'Отметить как прочитано'}
+                                      {isRead ? 'Прочитано' : 'Отметить как прочитано'}
                                     </button>
                                     {isRead && (
                                       <button className="btn btn-primary" style={{ marginLeft: 8 }} onClick={() => goToStep(2)}>
@@ -1165,24 +964,6 @@ export default function Onboarding() {
                                 <div className="card" style={{ border: '1px solid var(--gray-200)' }}>
                                   <div className="card-body" style={{ padding: 12 }}>
                                     <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Шаг 3. Тест на знание</div>
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
-                                      {timeLimitSeconds > 0 && (
-                                        <div style={{ fontSize: 12, color: isTimeExpired ? '#b91c1c' : 'var(--gray-600)' }}>
-                                          Таймер: <b>{formatSeconds(remainingSeconds)}</b>
-                                          <span style={{ marginLeft: 6, color: 'var(--gray-500)' }}>Лимит: {formatSeconds(timeLimitSeconds)}</span>
-                                        </div>
-                                      )}
-                                      {isCooldownActive && (
-                                        <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>
-                                          Повторная попытка будет доступна через {formatSeconds(cooldownRemaining)}.
-                                        </div>
-                                      )}
-                                      {isTimeExpired && (
-                                        <div style={{ fontSize: 12, color: '#b91c1c' }}>
-                                          Время на тест истекло. Откройте тест заново.
-                                        </div>
-                                      )}
-                                    </div>
                                     {quizQuestions.length > 0 ? (
                                       <div style={{ display: 'grid', gap: 10, marginBottom: 10 }}>
                                         {quizQuestions.map((item, qIndex) => (
@@ -1203,7 +984,7 @@ export default function Onboarding() {
                                                         [regulation.id]: { ...(prev[regulation.id] || {}), [qIndex]: opt },
                                                       }))
                                                     }
-                                                    disabled={!canAttemptQuiz}
+                                                    disabled={!canDoStep3 || hasPassedQuiz}
                                                   />
                                                   <span style={{ fontSize: 13 }}>{opt}</span>
                                                 </label>
@@ -1225,7 +1006,7 @@ export default function Onboarding() {
                                               name={`quiz-${regulation.id}`}
                                               checked={String(quizDrafts[regulation.id] || '') === String(opt)}
                                               onChange={() => setQuizDrafts((prev) => ({ ...prev, [regulation.id]: opt }))}
-                                              disabled={!canAttemptQuiz}
+                                              disabled={!canDoStep3 || hasPassedQuiz}
                                             />
                                             <span style={{ fontSize: 13 }}>{opt}</span>
                                           </label>
@@ -1242,17 +1023,17 @@ export default function Onboarding() {
                                           placeholder="Введите ответ"
                                           value={quizDrafts[regulation.id] || ''}
                                           onChange={(e) => setQuizDrafts((prev) => ({ ...prev, [regulation.id]: e.target.value }))}
-                                          disabled={!canAttemptQuiz}
+                                          disabled={!canDoStep3 || hasPassedQuiz}
                                           style={{ marginBottom: 8 }}
                                         />
                                       </>
                                     )}
                                     <button
                                       className="btn btn-secondary"
-                                      disabled={!canAttemptQuiz || !!busyMap[`quiz-${regulation.id}`]}
+                                      disabled={!canDoStep3 || hasPassedQuiz || !!busyMap[`quiz-${regulation.id}`]}
                                       onClick={() => submitRegulationQuiz(regulation)}
                                     >
-                                      {hasPassedQuiz ? 'Тест пройден' : isTimeExpired ? 'Время истекло' : isCooldownActive ? 'Ожидание' : 'Отправить ответ'}
+                                      {hasPassedQuiz ? 'Тест пройден' : 'Отправить ответ'}
                                     </button>
                                   </div>
                                 </div>
@@ -1485,31 +1266,10 @@ export default function Onboarding() {
             <div className="modal-overlay" onClick={closeRegulationModal}>
               <div className="modal" style={{ width: 'calc(100vw - 24px)', height: 'calc(100vh - 24px)', maxWidth: 'unset', maxHeight: 'unset' }} onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header">
-                  <div>
-                    <div className="modal-title">{selectedRegulation.title}</div>
-                    <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4 }}>
-                      Версия {selectedRegulation.version} • время ознакомления: {formatSeconds(getRegulationTimeSpentSeconds(selectedRegulation.id, quizNow))}
-                    </div>
-                  </div>
+                  <div className="modal-title">{selectedRegulation.title}</div>
                   <button className="btn-icon" type="button" onClick={closeRegulationModal}><X size={18} /></button>
                 </div>
                 <div className="modal-body">
-                  {String(selectedRegulation.change_log || '').trim() && (
-                    <div
-                      style={{
-                        marginBottom: 12,
-                        border: '1px solid var(--gray-200)',
-                        background: 'var(--gray-50)',
-                        borderRadius: 8,
-                        padding: 10,
-                      }}
-                    >
-                      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Изменения в версии {selectedRegulation.version}</div>
-                      <div style={{ fontSize: 13, color: 'var(--gray-700)', whiteSpace: 'pre-wrap' }}>
-                        {selectedRegulation.change_log}
-                      </div>
-                    </div>
-                  )}
                   {(selectedRegulation.type === 'link' && selectedRegulation.content) || selectedRegulationBlobUrl ? (
                     isLockedVideoCandidate(selectedRegulation.type === 'link' ? selectedRegulation.content : selectedRegulationBlobUrl) ? (
                       <LockedVideoPlayer
@@ -1569,27 +1329,6 @@ export default function Onboarding() {
     </MainLayout>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

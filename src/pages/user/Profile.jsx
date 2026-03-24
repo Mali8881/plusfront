@@ -17,27 +17,6 @@ function buildRoleMeta(t) {
     administrator: { label: t('profile.role.administrator', 'Администратор'), color: '#0284C7', bg: 'linear-gradient(135deg,#E0F2FE,#DBEAFE)' },
     systemadmin: { label: t('profile.role.systemadmin', 'Сист. администратор'), color: '#0F766E', bg: 'linear-gradient(135deg,#CCFBF1,#DBEAFE)' },
     superadmin: { label: t('profile.role.superadmin', 'Суперадмин'), color: '#BE123C', bg: 'linear-gradient(135deg,#FECDD3,#FED7AA)' },
-const GAMIFICATION_THEME = {
-  bronze: { accent: '#b45309', bg: 'linear-gradient(135deg,#ffedd5,#fef3c7)', soft: '#fff7ed' },
-  silver: { accent: '#475569', bg: 'linear-gradient(135deg,#e2e8f0,#f8fafc)', soft: '#f8fafc' },
-  gold: { accent: '#a16207', bg: 'linear-gradient(135deg,#fef3c7,#fde68a)', soft: '#fffbeb' },
-  platinum: { accent: '#0f766e', bg: 'linear-gradient(135deg,#ccfbf1,#cffafe)', soft: '#f0fdfa' },
-  legend: { accent: '#be123c', bg: 'linear-gradient(135deg,#ffe4e6,#fecdd3)', soft: '#fff1f2' },
-};
-
-function OrgSection() {
-  const [departments, setDepts] = useState(DEPARTMENTS.map((n, i) => ({ id: i + 1, name: n })));
-  const [positions, setPos] = useState(POSITIONS.map((n, i) => ({ id: i + 1, name: n, dept: DEPARTMENTS[i % DEPARTMENTS.length] })));
-  const [tab, setTab] = useState('depts');
-  const [newDept, setND] = useState('');
-  const [newPos, setNP] = useState('');
-  const [newPD, setNPD] = useState(DEPARTMENTS[0]);
-  const [saved, setSaved] = useState(false);
-
-  const addDept = () => {
-    if (!newDept.trim()) return;
-    setDepts((d) => [...d, { id: Date.now(), name: newDept.trim() }]);
-    setND('');
   };
 }
 
@@ -97,7 +76,6 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
 
   const [extrasLoading, setExtrasLoading] = useState(true);
   const [gamification, setGamification] = useState({ current_streak: 0, longest_streak: 0, badges: [], last_report_date: null });
@@ -258,17 +236,6 @@ export default function Profile() {
     } finally { setPassSaving(false); }
   };
 
-  const handleAvatar = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => setAvatar(ev.target.result);
-    reader.readAsDataURL(file);
-  };
-
-  const initials = form.name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase() || '??';
-  const levelTheme = GAMIFICATION_THEME[gamification?.tier_key] || GAMIFICATION_THEME.bronze;
-
   return (
     <MainLayout title={t('profile.title', 'Профиль')}>
       <div style={{ maxWidth: 860 }}>
@@ -378,107 +345,6 @@ export default function Profile() {
         {activeTab === 'general' && (
           <div style={{ display: 'grid', gap: 16 }}>
           <div className="card">
-        {gamification?.enabled && (
-          <div className="card" style={{ marginTop: 20, overflow: 'hidden' }}>
-            <div style={{ padding: 20, background: levelTheme.bg, borderBottom: '1px solid rgba(255,255,255,0.35)' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                  <div style={{ width: 82, height: 82, borderRadius: 24, background: 'rgba(255,255,255,0.72)', color: levelTheme.accent, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow)' }}>
-                    <Sparkles size={18} />
-                    <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1.1 }}>{gamification.level}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: levelTheme.accent, marginBottom: 6 }}>
-                      Уровень {gamification.level} · {gamification.tier_label}
-                    </div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--gray-900)' }}>Прокачка сотрудника</div>
-                    <div style={{ fontSize: 13, color: 'var(--gray-600)', marginTop: 4 }}>
-                      {gamification.xp_total} XP всего
-                      {gamification.next_level ? ` · до ${gamification.next_level} уровня осталось ${gamification.xp_to_next_level} XP` : ' · максимальный уровень достигнут'}
-                    </div>
-                  </div>
-                </div>
-                <div style={{ minWidth: 220, maxWidth: 300, flex: 1 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 6 }}>
-                    <span>Прогресс уровня</span>
-                    <span>{gamification.progress_percent}%</span>
-                  </div>
-                  <div style={{ height: 10, borderRadius: 999, background: 'rgba(255,255,255,0.65)', overflow: 'hidden' }}>
-                    <div style={{ width: `${gamification.progress_percent}%`, height: '100%', background: levelTheme.accent, borderRadius: 999 }} />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--gray-600)', marginTop: 8 }}>
-                    <span>{gamification.current_level_min_xp} XP</span>
-                    <span>{gamification.next_level_xp || gamification.xp_total} XP</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="card-body">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
-                {[
-                  { icon: <Flame size={16} color="#f97316" />, label: 'Текущий стрик', value: `${gamification.current_streak}/${gamification.max_streak}` },
-                  { icon: <Trophy size={16} color={levelTheme.accent} />, label: 'Лучший стрик', value: `${gamification.best_streak}/${gamification.max_streak}` },
-                  { icon: <Clock3 size={16} color="#0f766e" />, label: 'Следующая цель', value: gamification.next_streak_goal ? `${gamification.next_streak_goal} дней` : 'Все цели закрыты' },
-                ].map((item) => (
-                  <div key={item.label} style={{ background: levelTheme.soft, border: '1px solid var(--gray-200)', borderRadius: 16, padding: '14px 16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                      {item.icon} {item.label}
-                    </div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--gray-900)' }}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <ShieldCheck size={16} color={levelTheme.accent} />
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>Достижения</div>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                  {gamification.badges?.length ? gamification.badges.map((badge) => (
-                    <div key={badge.code} style={{ minWidth: 180, maxWidth: 240, padding: '10px 12px', borderRadius: 14, border: '1px solid var(--gray-200)', background: 'var(--gray-50)' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--gray-900)' }}>{badge.name}</div>
-                      <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 4 }}>{badge.description}</div>
-                    </div>
-                  )) : (
-                    <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>Первые бейджи появятся после регулярных отметок и отчётов.</div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <Trophy size={16} color={levelTheme.accent} />
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>Последние начисления XP</div>
-                </div>
-                <div style={{ display: 'grid', gap: 10 }}>
-                  {gamification.recent_events?.length ? gamification.recent_events.map((event, index) => (
-                    <div key={`${event.event_type}-${event.created_at}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, padding: '12px 14px', borderRadius: 14, border: '1px solid var(--gray-200)', background: 'white' }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--gray-900)' }}>{event.title}</div>
-                        <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 4 }}>{event.description}</div>
-                      </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: event.xp_delta >= 0 ? '#15803d' : '#b91c1c' }}>
-                          {event.xp_delta >= 0 ? `+${event.xp_delta}` : event.xp_delta} XP
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 4 }}>
-                          {event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : 'Событие'}
-                        </div>
-                      </div>
-                    </div>
-                  )) : (
-                    <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>История появится после первых игровых событий.</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {user?.role === 'intern' && (
-          <div className="card" style={{ marginTop: 20 }}>
             <div className="card-header">
               <span className="card-title">Личная информация</span>
             </div>

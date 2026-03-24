@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Pencil } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
-import { companyAPI, gamificationAPI } from '../../api/content';
+import { companyAPI } from '../../api/content';
 import { usersAPI, departmentsAPI } from '../../api/auth';
 import { useAuth } from '../../context/AuthContext';
 
@@ -412,11 +412,9 @@ export default function Company() {
   const canEditDepts = isSuperAdmin || myRole === 'administrator';
 
   const [tab, setTab] = useState('structure');
-  const [ratingPeriod, setRatingPeriod] = useState('all_time');
   const [structure, setStructure] = useState(null);
   const [org, setOrg] = useState(null);
   const [users, setUsers] = useState([]);
-  const [leaderboard, setLeaderboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(null);
@@ -439,8 +437,6 @@ export default function Company() {
         setStructure(sRes.data || null);
         setOrg(oRes.data || null);
         setUsers(Array.isArray(uRes.data) ? uRes.data : []);
-        const leaderboardRes = await gamificationAPI.leaderboard().catch(() => ({ data: null }));
-        setLeaderboard(leaderboardRes.data || null);
       } catch (e) {
         setError(e.response?.data?.detail || 'Не удалось загрузить данные компании.');
       } finally {
@@ -479,10 +475,6 @@ export default function Company() {
     return allDepts.filter((d) => (d.name || '').toLowerCase().includes(q));
   }, [allDepts, structSearch]);
 
-  const leaderboardSection = leaderboard?.periods?.[ratingPeriod] || { rows: [], current_user: null, label: '' };
-  const leaderboardRows = Array.isArray(leaderboardSection.rows) ? leaderboardSection.rows : [];
-  const currentUserRow = leaderboardSection.current_user || null;
-
   return (
     <MainLayout title="Компания">
       <div className="page-header">
@@ -499,7 +491,7 @@ export default function Company() {
         <>
           {/* Tabs */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '2px solid var(--gray-200)' }}>
-            {[['structure', 'Структура'], ['employees', 'Сотрудники'], ['ratings', 'Рейтинги']].map(([id, label]) => (
+            {[['structure', 'Структура'], ['employees', 'Сотрудники']].map(([id, label]) => (
               <button key={id} type="button" onClick={() => setTab(id)} style={{
                 padding: '10px 20px', border: 'none', background: 'none',
                 fontSize: 14, fontWeight: 600, cursor: 'pointer',
@@ -604,84 +596,6 @@ export default function Company() {
 
           {/* ── EMPLOYEES TAB ── */}
           {tab === 'employees' && <EmployeesTab org={org} usersById={usersById} />}
-{tab === 'ratings' ? (
-            <div style={{ display: 'grid', gap: 16 }}>
-              <div className="card">
-                <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <span className="card-title">Рейтинг сотрудников</span>
-                  <div className="tabs" style={{ marginBottom: 0 }}>
-                    <button className={`tab-btn ${ratingPeriod === 'all_time' ? 'active' : ''}`} onClick={() => setRatingPeriod('all_time')}>Все время</button>
-                    <button className={`tab-btn ${ratingPeriod === 'week' ? 'active' : ''}`} onClick={() => setRatingPeriod('week')}>Неделя</button>
-                    <button className={`tab-btn ${ratingPeriod === 'month' ? 'active' : ''}`} onClick={() => setRatingPeriod('month')}>Месяц</button>
-                  </div>
-                </div>
-                <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                  <div style={{ border: '1px solid var(--gray-200)', borderRadius: 16, padding: '16px 18px', background: 'linear-gradient(135deg,#eff6ff,#f8fafc)' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>Период</div>
-                    <div style={{ fontSize: 20, fontWeight: 800 }}>{leaderboardSection.label || 'Рейтинг'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 6 }}>Участников: {leaderboardRows.length}</div>
-                  </div>
-                  <div style={{ border: '1px solid var(--gray-200)', borderRadius: 16, padding: '16px 18px', background: 'linear-gradient(135deg,#ecfccb,#fefce8)' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>Лидер периода</div>
-                    <div style={{ fontSize: 18, fontWeight: 800 }}>{leaderboardRows[0]?.full_name || 'Пока нет данных'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 6 }}>
-                      {ratingPeriod === 'all_time' ? `${leaderboardRows[0]?.xp_total ?? 0} XP всего` : `${leaderboardRows[0]?.period_xp ?? 0} XP за период`}
-                    </div>
-                  </div>
-                  <div style={{ border: '1px solid var(--gray-200)', borderRadius: 16, padding: '16px 18px', background: 'linear-gradient(135deg,#fdf2f8,#faf5ff)' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>Моя позиция</div>
-                    <div style={{ fontSize: 20, fontWeight: 800 }}>{currentUserRow ? `#${currentUserRow.rank}` : 'Вне рейтинга'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--gray-600)', marginTop: 6 }}>
-                      {currentUserRow ? `${ratingPeriod === 'all_time' ? currentUserRow.xp_total : currentUserRow.period_xp} XP` : 'Появится после игровых событий'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-header"><span className="card-title">Таблица рейтинга</span></div>
-                <div className="table-wrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>МЕСТО</th>
-                        <th>СОТРУДНИК</th>
-                        <th>ОТДЕЛ</th>
-                        <th>РОЛЬ</th>
-                        <th>УРОВЕНЬ</th>
-                        <th>{ratingPeriod === 'all_time' ? 'ВСЕГО XP' : 'XP ЗА ПЕРИОД'}</th>
-                        <th>СТРИК</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {leaderboardRows.map((row) => (
-                        <tr key={`${ratingPeriod}-${row.user_id}`} style={currentUserRow?.user_id === row.user_id ? { background: '#f0fdf4' } : undefined}>
-                          <td><b>#{row.rank}</b></td>
-                          <td>
-                            <div style={{ fontWeight: 700 }}>{row.full_name}</div>
-                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>@{row.username}</div>
-                          </td>
-                          <td>
-                            <div>{row.department_name || '-'}</div>
-                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{row.subdivision_name || '-'}</div>
-                          </td>
-                          <td>{ROLE_LABELS[row.role] || row.role_label || row.role || '-'}</td>
-                          <td>Lv. {row.level}</td>
-                          <td>{ratingPeriod === 'all_time' ? row.xp_total : row.period_xp}</td>
-                          <td>{row.current_streak}</td>
-                        </tr>
-                      ))}
-                      {leaderboardRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} style={{ color: 'var(--gray-500)' }}>Рейтинг пока пуст.</td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          ) : null}
         </>
       )}
 

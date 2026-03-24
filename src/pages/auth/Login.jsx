@@ -44,12 +44,7 @@ export default function Login() {
         navigate('/dashboard');
       }
     } catch (err) {
-      setError(
-        err?.response?.data?.error ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        'Неверный логин или пароль'
-      );
+      setError(err.message || 'Не удалось войти. Проверьте email и пароль.');
     }
   };
 

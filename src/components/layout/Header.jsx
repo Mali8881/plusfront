@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Bell, ChevronDown, Flame, GraduationCap, Info, LogOut, Sparkles, User } from 'lucide-react';
+import { AlertTriangle, Bell, ChevronDown, GraduationCap, Info, LogOut, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 import { dispatchToast } from '../../context/ToastContext';
-import { feedbackAPI, gamificationAPI, notificationsAPI } from '../../api/content';
+import { feedbackAPI, notificationsAPI } from '../../api/content';
 import { mapNotification } from '../../utils/notificationI18n';
 
 const ROLE_COLORS = {
@@ -51,8 +51,6 @@ export default function Header({ title }) {
   const [notifs, setNotifs] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const prevUnreadRef = useRef(0);
-  const [gamification, setGamification] = useState(null);
-  const [notifFilter, setNotifFilter] = useState('all');
 
   const initials = user?.name?.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase() || '??';
   const roleColor = ROLE_COLORS[user?.role] || '#2563EB';
@@ -112,19 +110,8 @@ export default function Header({ title }) {
     }
   };
 
-  const refreshGamification = async () => {
-    if (!user?.id) return;
-    try {
-      const res = await gamificationAPI.my();
-      setGamification(res?.data || null);
-    } catch {
-      setGamification(null);
-    }
-  };
-
   useEffect(() => {
     refreshNotifications();
-    refreshGamification();
     const i = setInterval(() => { refreshNotifications(); }, 10000);
     return () => clearInterval(i);
   }, [user?.id, user?.role, t]);
@@ -159,75 +146,11 @@ export default function Header({ title }) {
     }
   };
 
-  const isDeadlineNotification = (item) => {
-    const text = `${item?.title || ''} ${item?.message || ''}`.toLowerCase();
-    return (
-      text.includes('deadline') ||
-      text.includes('due on') ||
-      text.includes('reminder') ||
-      text.includes('дедлайн') ||
-      text.includes('напомин') ||
-      text.includes('отчет')
-    );
-  };
-
-  const isStatusNotification = (item) => {
-    const text = `${item?.title || ''} ${item?.message || ''}`.toLowerCase();
-    return (
-      text.includes('status updated') ||
-      text.includes('moved to') ||
-      text.includes('статус') ||
-      text.includes('перемещ')
-    );
-  };
-
-  const filteredNotifs = notifs.filter((item) => {
-    if (notifFilter === 'deadlines') return isDeadlineNotification(item);
-    if (notifFilter === 'status') return isStatusNotification(item);
-    return true;
-  });
-
   return (
     <header className="header">
       <div className="header-title">{title || ''}</div>
       <div style={{ flex: 1, paddingLeft: 20, fontSize: 14, color: 'var(--gray-500)', display: 'flex', alignItems: 'center', gap: 6 }}>
         {t('header.welcome', 'Добро пожаловать')}, <b style={{ color: 'var(--gray-800)' }}>{firstName}!</b>
-        {gamification?.enabled && Number.isFinite(gamification?.level) && (
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              padding: '2px 8px',
-              borderRadius: 999,
-              background: '#ecfccb',
-              color: '#3f6212',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-            title="Текущий уровень"
-          >
-            <Sparkles size={12} color="#4d7c0f" /> Lv. {gamification.level}
-          </span>
-        )}
-        {gamification?.enabled && Number.isFinite(gamification?.current_streak) && (
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              padding: '2px 8px',
-              borderRadius: 999,
-              background: 'var(--gray-100)',
-              color: 'var(--gray-700)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-            title="Стрик за своевременную отметку начала работы"
-          >
-            <Flame size={12} color="#f97316" /> Стрик: {gamification.current_streak}
-          </span>
-        )}
       </div>
       <div className="header-lang" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         {['ru', 'en', 'kg'].map((code, idx) => (
@@ -279,40 +202,14 @@ export default function Header({ title }) {
                 {t('notifications.markRead', 'Прочитать всё')}
               </button>
             </div>
-            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--gray-100)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                className="btn btn-secondary btn-sm"
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setNotifFilter('all'); }}
-                style={{ background: notifFilter === 'all' ? 'var(--primary)' : undefined, color: notifFilter === 'all' ? '#fff' : undefined }}
-              >
-                Все
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setNotifFilter('deadlines'); }}
-                style={{ background: notifFilter === 'deadlines' ? 'var(--primary)' : undefined, color: notifFilter === 'deadlines' ? '#fff' : undefined }}
-              >
-                Дедлайны
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setNotifFilter('status'); }}
-                style={{ background: notifFilter === 'status' ? 'var(--primary)' : undefined, color: notifFilter === 'status' ? '#fff' : undefined }}
-              >
-                Статусы
-              </button>
-            </div>
 
             <div style={{ maxHeight: 360, overflow: 'auto', padding: 8 }}>
-              {filteredNotifs.length === 0 && (
+              {notifs.length === 0 && (
                 <div style={{ fontSize: 12, color: 'var(--gray-500)', padding: 8 }}>
-                  {notifFilter === 'all' ? t('notifications.empty', 'Новых событий нет.') : 'Нет уведомлений по выбранному фильтру.'}
+                  {t('notifications.empty', 'Новых событий нет.')}
                 </div>
               )}
-              {filteredNotifs.map((n) => {
+              {notifs.map((n) => {
                 const isUnread = !n.raw?.is_read;
                 const isPinned = n.raw?.is_pinned;
                 return (

@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MainLayout from '../../layouts/MainLayout';
-import api from '../../api/axios';
+import { attendanceAPI } from '../../api/content';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 
@@ -208,10 +208,8 @@ export default function Attendance() {
 
     try {
       const params = { year: period.year, month: period.month };
-      let payload;
-
-      const res = await api.get('/v1/attendance/', { params });
-      payload = res?.data;
+      const res = await attendanceAPI.overview(params);
+      const payload = res?.data;
 
       const normalized = normalizePayloadToRows(payload || {});
       const nextDays = normalized.days;

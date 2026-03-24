@@ -101,11 +101,13 @@ export const schedulesAPI = {
 };
 
 export const attendanceAPI = {
+  overview: (params) => api.get('/v1/attendance/', { params }),
   getMy: (params) => api.get('/v1/attendance/my/', { params }),
   mySession: () => api.get('/v1/attendance/my/session/'),
   getTeam: (params) => api.get('/v1/attendance/team/', { params }),
   checkinsReport: (params) => api.get('/v1/attendance/checkins-report/', { params }),
   mark: (data) => api.post('/v1/attendance/mark/', data),
+  deleteMark: (data) => api.delete('/v1/attendance/mark/', { data }),
   officeCheckIn: (data) => api.post('/v1/attendance/check-in/', data),
   officeCheckOut: (data) => api.post('/v1/attendance/check-out/', data || {}),
 };

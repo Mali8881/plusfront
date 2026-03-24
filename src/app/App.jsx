@@ -28,6 +28,7 @@ const Pulse = lazy(() => import('../pages/user/Pulse'));
 const Wiki = lazy(() => import('../pages/user/Wiki'));
 const DeskBooking = lazy(() => import('../pages/user/DeskBooking'));
 const Attendance = lazy(() => import('../pages/user/Attendance'));
+const Gamification = lazy(() => import('../pages/user/Gamification'));
 const ExitInterview = lazy(() => import('../pages/public/ExitInterview'));
 
 const AdminUsers = lazy(() => import('../pages/admin/Users'));
@@ -212,6 +213,7 @@ function AppRoutes() {
         <Route path="/salary" element={<SalaryRoute><Salary /></SalaryRoute>} />
         <Route path="/desk-booking" element={<NonInternRoute><DeskBooking /></NonInternRoute>} />
         <Route path="/attendance" element={<NonInternRoute><Attendance /></NonInternRoute>} />
+        <Route path="/gamification" element={<PrivateRoute><Gamification /></PrivateRoute>} />
         <Route path="/exit-interview/:token" element={<ExitInterview />} />
         <Route path="/attendance-marks" element={<AttendanceMarksRoute><AttendanceMarks /></AttendanceMarksRoute>} />
 

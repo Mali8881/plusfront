@@ -20,6 +20,7 @@ import {
   Wallet,
   MapPin,
   Activity,
+  Flame,
   Monitor,
   ClipboardList,
 } from 'lucide-react';
@@ -32,6 +33,7 @@ const NAV_INTERN = [
   { label: 'Мои задачи', icon: CheckSquare, path: '/tasks' },
   { label: 'База знаний', icon: FileText, path: '/wiki' },
   { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
+  { label: 'Активность', icon: Flame, path: '/gamification' },
   { label: 'Зарплата', icon: Wallet, path: '/salary' },
 ];
 
@@ -39,6 +41,7 @@ const NAV_EMPLOYEE = [
   { label: 'Главная', icon: Home, path: '/dashboard' },
   { label: 'Мои задачи', icon: CheckSquare, path: '/tasks' },
   { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
+  { label: 'Активность', icon: Flame, path: '/gamification' },
   { label: 'База знаний', icon: FileText, path: '/wiki' },
   { label: 'Материалы', icon: BookOpen, path: '/lessons' },
   { label: 'Курсы', icon: BookOpen, path: '/courses' },
@@ -54,6 +57,7 @@ const NAV_PM = [
   { label: 'Главная', icon: Home, path: '/dashboard' },
   { label: 'Задачи команды', icon: CheckSquare, path: '/tasks' },
   { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
+  { label: 'Активность', icon: Flame, path: '/gamification' },
   { label: 'База знаний', icon: FileText, path: '/wiki' },
   { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
   { label: 'Посещаемость', icon: ClipboardList, path: '/attendance' },
@@ -201,6 +205,7 @@ export default function Sidebar() {
       'Отметки сотрудников': 'sidebar.attendanceMarks',
       'Обратная связь': 'sidebar.feedback',
       'Трекер настроения': 'sidebar.pulse',
+      'Активность': 'sidebar.gamification',
       'База знаний': 'sidebar.wiki',
       'Система / Безопасность': 'sidebar.systemSecurity',
       'Интерфейс': 'sidebar.interface',

@@ -1,8 +1,8 @@
-﻿import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Eye, ListFilter, MessageSquareText, Plus, UserRound, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, X } from 'lucide-react';
 import MainLayout from '../../layouts/MainLayout';
 import { useAuth } from '../../context/AuthContext';
-import { onboardingAPI, tasksAPI } from '../../api/content';
+import { tasksAPI } from '../../api/content';
 
 const PRIORITY_LABELS = {
   critical: 'Критический',
@@ -11,78 +11,6 @@ const PRIORITY_LABELS = {
   low: 'Низкий',
 };
 
-const DEFAULT_COLUMN_ORDERS = [1, 2, 3, 4];
-const DEFAULT_COLUMN_NAMES = {
-  1: 'Новые',
-  2: 'В работе',
-  3: 'На проверке',
-  4: 'Завершенные',
-};
-
-const TASK_TYPE_LABELS = {
-  all: 'Все',
-  regular: 'Обычные',
-  system: 'Системные',
-};
-
-const DAILY_REPORT_STATUS_META = {
-  SENT: { label: 'На проверке', badgeClass: 'badge-yellow' },
-  ACCEPTED: { label: 'Принят', badgeClass: 'badge-green' },
-  REVISION_REQUIRED: { label: 'Нужны правки', badgeClass: 'badge-red' },
-};
-
-function getDefaultTaskType(section) {
-  return section === 'team' ? 'regular' : 'all';
-}
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function formatDate(value) {
-  if (!value) return 'Без срока';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: 'short',
-  }).format(date);
-}
-
-function formatDateTime(value) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function reportStatusBadge(status, statusLabel) {
-  const meta = DAILY_REPORT_STATUS_META[status] || { label: statusLabel || status || 'На проверке', badgeClass: 'badge-gray' };
-  return <span className={`badge ${meta.badgeClass}`}>{statusLabel || meta.label}</span>;
-}
-
-function detectTaskType(raw) {
-  const title = String(raw?.title || '').toLowerCase();
-  const description = String(raw?.description || '').toLowerCase();
-  const combined = `${title} ${description}`;
-  const isSystem =
-    combined.includes('график работы') ||
-    combined.includes('недельн') ||
-    combined.includes('weekly plan');
-
-  return {
-    taskType: isSystem ? 'system' : 'regular',
-    taskTypeLabel: isSystem ? 'План недели' : 'Обычная задача',
-    systemBadge: isSystem ? 'Системная' : '',
-    isSystem,
-  };
-}
-
 const PRIORITY_ORDER = {
   critical: 0,
   high: 1,
@@ -90,44 +18,313 @@ const PRIORITY_ORDER = {
   low: 3,
 };
 
+const STATUS_LABELS = {
+  to_do: 'К выполнению',
+  in_progress: 'В работе',
+  review: 'На проверке',
+  done: 'Выполнено',
+  blocked: 'Заблокировано',
+};
+
+const ROLE_LABELS = {
+  projectmanager: 'Тимлид',
+  department_head: 'Руководитель',
+  admin: 'Админ',
+  superadmin: 'Суперадмин',
+  employee: 'Сотрудник',
+  intern: 'Стажер',
+};
+
+const PROJECT_STATUS_LABELS = {
+  planning: 'Запланирован',
+  active: 'Активный',
+  on_hold: 'На паузе',
+  completed: 'Завершён',
+  archived: 'В архиве',
+};
+
+const PROJECT_STATUS_TONES = {
+  planning: 'badge-gray',
+  active: 'badge-blue',
+  on_hold: 'badge-red',
+  completed: 'badge-green',
+  archived: 'badge-gray',
+};
+
+const DEFAULT_COLUMN_ORDERS = [1, 2, 3, 4, 5];
+const DEFAULT_COLUMN_NAMES = {
+  1: 'К выполнению',
+  2: 'В работе',
+  3: 'На проверке',
+  4: 'Выполнено',
+  5: 'Заблокировано',
+};
+
+function formatDisplayDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('ru-RU');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function buildProjectReportDocumentHtml(project, report) {
+  const memberList = (project?.members || [])
+    .map((member) => `<span class="chip">${escapeHtml((member.full_name || member.username) + (member.roleLabel ? ` • ${member.roleLabel}` : ''))}</span>`)
+    .join('');
+
+  const statusRows = [
+    ['К выполнению', report.statusCounts.to_do],
+    ['В работе', report.statusCounts.in_progress],
+    ['На проверке', report.statusCounts.review],
+    ['Выполнено', report.statusCounts.done],
+    ['Заблокировано', report.statusCounts.blocked],
+  ]
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+
+  const assigneeRows = (report.assigneeStats || [])
+    .map(
+      (item) => `
+        <tr>
+          <td>${escapeHtml(item.name)}</td>
+          <td>${escapeHtml(item.total)}</td>
+          <td>${escapeHtml(item.done)}</td>
+          <td>${escapeHtml(item.inProgress)}</td>
+          <td>${escapeHtml(item.review)}</td>
+          <td>${escapeHtml(item.progress)}%</td>
+        </tr>
+      `,
+    )
+    .join('');
+
+  const overdueRows = (report.overdueTasks || [])
+    .map(
+      (task) => `
+        <tr>
+          <td>${escapeHtml(task.title)}</td>
+          <td>${escapeHtml(task.assigneeUsername)}</td>
+          <td>${escapeHtml(task.statusLabel)}</td>
+          <td>${escapeHtml(formatDisplayDate(task.dueDate))}</td>
+        </tr>
+      `,
+    )
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>${escapeHtml(project?.name || 'Отчет по проекту')}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #182033; margin: 32px; }
+    .hero { background: linear-gradient(135deg, #eaf2ff, #f7fbff); border: 1px solid #d9e6ff; border-radius: 22px; padding: 28px; margin-bottom: 24px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    .subtitle { color: #62708a; font-size: 14px; }
+    .grid { width: 100%; border-collapse: separate; border-spacing: 12px; margin: 12px 0 20px; }
+    .card { border: 1px solid #e3e8f2; border-radius: 18px; padding: 16px; background: #fff; }
+    .card-label { color: #667085; font-size: 12px; margin-bottom: 6px; }
+    .card-value { font-size: 22px; font-weight: 700; }
+    .section { margin-top: 24px; }
+    .section h2 { font-size: 18px; margin: 0 0 12px; }
+    .chips { margin-top: 8px; }
+    .chip { display: inline-block; margin: 0 8px 8px 0; padding: 8px 12px; border-radius: 999px; background: #eef3ff; color: #2f4ea6; font-size: 12px; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #edf1f7; padding: 10px 8px; text-align: left; font-size: 13px; }
+    th { color: #667085; font-weight: 700; }
+    .progress-wrap { margin-top: 8px; }
+    .progress-bar { width: 100%; height: 10px; background: #edf2f7; border-radius: 999px; overflow: hidden; }
+    .progress-bar > div { width: ${Math.max(0, Math.min(report.progressPercentage, 100))}%; height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+    .empty { color: #98a2b3; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>${escapeHtml(project?.name || 'Без названия')}</h1>
+    <div class="subtitle">${escapeHtml(project?.description || 'Описание проекта пока не заполнено')}</div>
+  </div>
+
+  <table class="grid">
+    <tr>
+      <td class="card">
+        <div class="card-label">Ответственный</div>
+        <div class="card-value">${escapeHtml(project?.responsibleUserName || '—')}</div>
+      </td>
+      <td class="card">
+        <div class="card-label">Статус проекта</div>
+        <div class="card-value">${escapeHtml(project?.statusLabel || '—')}</div>
+      </td>
+      <td class="card">
+        <div class="card-label">Дата создания</div>
+        <div class="card-value">${escapeHtml(formatDisplayDate(project?.createdAt))}</div>
+      </td>
+      <td class="card">
+        <div class="card-label">Дата завершения</div>
+        <div class="card-value">${escapeHtml(formatDisplayDate(project?.endDate))}</div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="section">
+    <h2>В команде</h2>
+    <div class="chips">${memberList || '<span class="empty">Участники не добавлены</span>'}</div>
+  </div>
+
+  <div class="section">
+    <h2>Насколько проект готов</h2>
+    <table>
+      <tr><th>Показатель</th><th>Значение</th></tr>
+      <tr><td>Общее количество задач</td><td>${escapeHtml(report.totalTaskCount)}</td></tr>
+      <tr><td>Процент выполнения</td><td>${escapeHtml(report.progressPercentage)}%</td></tr>
+      <tr><td>Просроченные задачи</td><td>${escapeHtml(report.overdueTaskCount)}</td></tr>
+    </table>
+    <div class="progress-wrap">
+      <div class="progress-bar"><div></div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Задачи по статусам</h2>
+    <table>
+      <tr><th>Статус</th><th>Количество</th></tr>
+      ${statusRows}
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Эффективность членов команды</h2>
+    ${
+      assigneeRows
+        ? `<table>
+            <tr>
+              <th>Участник</th>
+              <th>Всего задач</th>
+              <th>Выполнено</th>
+              <th>В работе</th>
+              <th>На проверке</th>
+              <th>Прогресс</th>
+            </tr>
+            ${assigneeRows}
+          </table>`
+        : '<div class="empty">Нет данных по участникам проекта.</div>'
+    }
+  </div>
+
+  <div class="section">
+    <h2>Просроченные задачи</h2>
+    ${
+      overdueRows
+        ? `<table>
+            <tr>
+              <th>Задача</th>
+              <th>Исполнитель</th>
+              <th>Статус</th>
+              <th>Срок</th>
+            </tr>
+            ${overdueRows}
+          </table>`
+        : '<div class="empty">Просроченных задач нет.</div>'
+    }
+  </div>
+</body>
+</html>`;
+}
+
+function downloadProjectReportDocument(project, report) {
+  const html = buildProjectReportDocumentHtml(project, report);
+  const blob = new Blob([html], { type: 'application/msword;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const safeName = (project?.name || 'project-report').replace(/[^\p{L}\p{N}\-_ ]/gu, '').trim() || 'project-report';
+  link.href = url;
+  link.download = `${safeName}.doc`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function normalizeTask(raw) {
-  const taskTypeMeta = detectTaskType(raw);
   return {
     id: raw.id,
     title: raw.title || '',
     description: raw.description || '',
-    assigneeId: raw.assignee || null,
-    assigneeName: raw.assignee_username || (raw.assignee ? `ID ${raw.assignee}` : 'Без исполнителя'),
+    assigneeId: raw.assignee,
+    assigneeName: raw.assignee_display || raw.assignee_username || 'Без исполнителя',
     reporterName: raw.reporter_username || '',
     dueDate: raw.due_date || null,
     priority: raw.priority || 'medium',
-    status: raw.status || 'new',
-    statusLabel: raw.status_label || '',
+    priorityLabel: raw.priority_label || PRIORITY_LABELS[raw.priority] || raw.priority,
+    status: raw.status || 'to_do',
     isOverdue: Boolean(raw.is_overdue),
-    canCompleteParent: Boolean(raw.can_complete_parent),
-    isReadOnly: Boolean(raw.is_read_only),
     columnId: raw.column,
     columnOrder: Number(raw.column_order || 0),
     columnName: raw.column_name || '',
+    boardId: raw.board,
+    boardName: raw.board_name || '',
     boardColumns: Array.isArray(raw.board_columns) ? raw.board_columns : [],
-    subtasks: Array.isArray(raw.subtasks) ? raw.subtasks : [],
-    checklistItems: Array.isArray(raw.checklist_items) ? raw.checklist_items : [],
-    attachments: Array.isArray(raw.attachments) ? raw.attachments : [],
-    ...taskTypeMeta,
+    subtasksTotal: Number(raw.subtasks_total || 0),
+    subtasksCompleted: Number(raw.subtasks_completed || 0),
+    checklistTotal: Number(raw.checklist_total || 0),
+    checklistCompleted: Number(raw.checklist_completed || 0),
+    completionPercentage: Number(raw.completion_percentage || 0),
+    canCompleteParent: Boolean(raw.can_complete_parent),
     updatedAt: raw.updated_at,
   };
 }
 
-function normalizeTemplate(raw) {
+function normalizeSubtask(raw) {
   return {
     id: raw.id,
     title: raw.title || '',
-    description: raw.description || '',
-    defaultPriority: raw.default_priority || 'medium',
-    isActive: raw.is_active !== false,
-    subtasks: Array.isArray(raw.subtasks) ? raw.subtasks : [],
-    checklistItems: Array.isArray(raw.checklist_items) ? raw.checklist_items : [],
+    isCompleted: Boolean(raw.is_completed),
     createdBy: raw.created_by_username || '',
+  };
+}
+
+function normalizeChecklistItem(raw) {
+  return {
+    id: raw.id,
+    title: raw.title || '',
+    isCompleted: Boolean(raw.is_completed),
+    createdBy: raw.created_by_username || '',
+  };
+}
+
+function normalizeProject(raw) {
+  return {
+    id: raw.id,
+    name: raw.name || '',
+    description: raw.description || '',
+    status: raw.status || 'active',
+    statusLabel: raw.status_label || PROJECT_STATUS_LABELS[raw.status] || raw.status,
+    endDate: raw.end_date || null,
+    createdAt: raw.created_at || null,
+    responsibleUserId: raw.responsible_user || null,
+    responsibleUserName: raw.responsible_user_username || raw.created_by_username || '—',
+    taskCount: Number(raw.task_count || 0),
+    completedTaskCount: Number(raw.completed_task_count || 0),
+    inProgressTaskCount: Number(raw.in_progress_task_count || 0),
+    overdueTaskCount: Number(raw.overdue_task_count || 0),
+    progressPercentage: Number(raw.progress_percentage || 0),
+    members: Array.isArray(raw.members)
+      ? raw.members.map((member) => ({
+          ...member,
+          roleLabel: ROLE_LABELS[(member.role || '').toLowerCase()] || member.role || '',
+        }))
+      : [],
   };
 }
 
@@ -135,70 +332,113 @@ function normalizeReport(raw) {
   return {
     id: raw.id,
     username: raw.user_full_name || raw.username || '-',
-    date: raw.report_date,
     started: raw.started_tasks || '',
     taken: raw.taken_tasks || '',
     completed: raw.completed_tasks || '',
     blockers: raw.blockers || '',
-    summary: raw.summary || '',
-    status: raw.status || 'SENT',
-    statusLabel: raw.status_label || '',
-    reviewComment: raw.review_comment || '',
-    reviewedAt: raw.reviewed_at || null,
-    reviewedByUsername: raw.reviewed_by_username || '',
-    aiSummary: raw.ai_summary || '',
-    aiAnalyzedAt: raw.ai_analyzed_at || null,
   };
 }
 
-export default function Tasks() {
+function normalizeProjectReport(raw) {
+  const statusCounts = raw?.status_counts || {};
+  const overdueTasks = Array.isArray(raw?.overdue_tasks) ? raw.overdue_tasks : [];
+
+  return {
+    totalTaskCount: Number(raw?.total_task_count || 0),
+    completedTaskCount: Number(raw?.completed_task_count || 0),
+    progressPercentage: Number(raw?.progress_percentage || 0),
+    overdueTaskCount: Number(raw?.overdue_task_count || 0),
+    templateReport: raw?.template_report || '',
+    assigneeStats: Array.isArray(raw?.assignee_stats)
+      ? raw.assignee_stats.map((item) => ({
+          name: item.name || item.username || '—',
+          total: Number(item.total || 0),
+          done: Number(item.done || 0),
+          inProgress: Number(item.in_progress || 0),
+          review: Number(item.review || 0),
+          blocked: Number(item.blocked || 0),
+          progress: Number(item.progress || 0),
+        }))
+      : [],
+    statusCounts: {
+      to_do: Number(statusCounts.to_do || 0),
+      in_progress: Number(statusCounts.in_progress || 0),
+      review: Number(statusCounts.review || 0),
+      done: Number(statusCounts.done || 0),
+      blocked: Number(statusCounts.blocked || 0),
+    },
+    overdueTasks: overdueTasks.map((task) => ({
+      id: task.id,
+      title: task.title || '',
+      assigneeUsername: task.assignee_username || 'Без исполнителя',
+      statusLabel: task.status_label || STATUS_LABELS[task.status] || task.status || '',
+      dueDate: task.due_date || null,
+    })),
+  };
+}
+
+export default function Tasks({ view = 'tasks' }) {
   const { user } = useAuth();
   const role = user?.role;
-  const canSeeTeamTasksSection = ['teamlead', 'department_head', 'admin', 'administrator', 'superadmin', 'projectmanager'].includes(role);
-  const canSeeOwnTasksSection = role !== 'superadmin';
-  const canSwitchTaskSections = canSeeTeamTasksSection;
-  const [taskSection, setTaskSection] = useState(role === 'superadmin' ? 'team' : 'my');
-  const canSubmitDaily = ['employee', 'teamlead'].includes(user?.role);
-  const canViewDaily = ['teamlead', 'department_head', 'admin', 'administrator', 'superadmin', 'projectmanager'].includes(user?.role);
-  const canReviewDaily = ['teamlead', 'department_head', 'admin', 'administrator', 'superadmin', 'systemadmin'].includes(user?.role);
-  const canViewTeamList = ['teamlead', 'projectmanager', 'department_head', 'admin', 'administrator', 'superadmin'].includes(user?.role);
+  const isProjectsView = view === 'projects';
+  const canSeeProjects = ['employee', 'projectmanager', 'department_head', 'admin', 'superadmin'].includes(role);
+  const isManager = ['projectmanager', 'department_head', 'admin', 'superadmin'].includes(role);
+  const canAssignProjectTasks = isManager;
+  const canSubmitDaily = ['employee', 'projectmanager'].includes(role);
+  const canViewDaily = ['department_head', 'admin', 'superadmin', 'projectmanager'].includes(role);
 
+  const [taskSection] = useState(isProjectsView ? 'team' : 'my');
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [projects, setProjects] = useState([]);
+  const [projectReport, setProjectReport] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [error, setError] = useState('');
   const [assigneeOptions, setAssigneeOptions] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [selectedTask, setSelectedTask] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [movingTaskId, setMovingTaskId] = useState(null);
+  const [reportDate, setReportDate] = useState(todayISO());
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editingProjectId, setEditingProjectId] = useState(null);
+  const [activeTask, setActiveTask] = useState(null);
+  const [updatingProjectStatus, setUpdatingProjectStatus] = useState(false);
+  const [projectStatusFilter, setProjectStatusFilter] = useState('');
   const [taskComments, setTaskComments] = useState([]);
   const [taskHistory, setTaskHistory] = useState([]);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [taskSubtasks, setTaskSubtasks] = useState([]);
+  const [taskChecklist, setTaskChecklist] = useState([]);
   const [commentText, setCommentText] = useState('');
-  const [attachmentUploading, setAttachmentUploading] = useState(false);
-  const [movingTaskId, setMovingTaskId] = useState(null);
-  const [analyzingReportId, setAnalyzingReportId] = useState(null);
-  const [dragTaskId, setDragTaskId] = useState(null);
-  const [reportDate, setReportDate] = useState(todayISO());
-  const [progressUser, setProgressUser] = useState(null);
-  const [progressData, setProgressData] = useState(null);
-  const [progressLoading, setProgressLoading] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
+  const [subtaskTitle, setSubtaskTitle] = useState('');
+  const [checklistTitle, setChecklistTitle] = useState('');
 
-  const [form, setForm] = useState({
+  const [filters, setFilters] = useState({
+    assigneeId: '',
+    priority: '',
+    status: '',
+    overdueOnly: false,
+  });
+
+  const [taskForm, setTaskForm] = useState({
+    board_id: '',
     title: '',
     description: '',
     priority: 'medium',
     due_date: '',
     assignee_id: '',
   });
-  const [templateForm, setTemplateForm] = useState({
-    title: '',
+
+  const [projectForm, setProjectForm] = useState({
+    name: '',
     description: '',
-    default_priority: 'medium',
-    subtasks: [''],
-    checklist_items: [''],
+    status: 'planning',
+    end_date: '',
+    responsible_user_id: '',
+    member_ids: [],
   });
-  const [editingTemplateId, setEditingTemplateId] = useState(null);
 
   const [dailyForm, setDailyForm] = useState({
     started_tasks: '',
@@ -206,154 +446,224 @@ export default function Tasks() {
     completed_tasks: '',
     blockers: '',
   });
-  const [filters, setFilters] = useState({
-    assignee: '',
-    status: '',
-    priority: '',
-    taskType: getDefaultTaskType(role === 'superadmin' ? 'team' : 'my'),
-    overdue: '',
-    due_date_from: '',
-    due_date_to: '',
-  });
 
-  const loadAll = async () => {
-    setLoading(true);
-    setError('');
+  const pageTitle = isProjectsView ? 'Проекты' : 'Задачи';
+  const pageSubtitle = isProjectsView
+    ? 'Проекты, участники и задачи команды по каждому проекту'
+    : 'Ваши личные задачи и статусы выполнения';
+
+  const loadProjects = async () => {
+    if (!canSeeProjects) {
+      setProjects([]);
+      return;
+    }
     try {
-      const taskParams = Object.fromEntries(
-        Object.entries(filters).filter(
-          ([key, value]) => key !== 'taskType' && value !== '' && value !== null && value !== undefined
-        )
-      );
-      const [myRes, teamRes, reportsRes, templatesRes] = await Promise.all([
-        canSeeOwnTasksSection ? tasksAPI.my(taskParams).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
-        canSeeTeamTasksSection ? tasksAPI.team(taskParams).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
-        tasksAPI.dailyReports({ date: reportDate }).catch(() => ({ data: [] })),
-        tasksAPI.templates().catch(() => ({ data: [] })),
-      ]);
-
-      const myTasks = Array.isArray(myRes.data) ? myRes.data : [];
-      const teamTasks = Array.isArray(teamRes.data) ? teamRes.data : [];
-      const selectedTasks = taskSection === 'team' ? teamTasks : myTasks;
-      const byId = new Map();
-      selectedTasks.forEach((t) => byId.set(t.id, normalizeTask(t)));
-      setTasks(
-        Array.from(byId.values()).sort((a, b) => {
-          const priorityDiff = (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99);
-          if (priorityDiff !== 0) return priorityDiff;
-          return new Date(b.updatedAt) - new Date(a.updatedAt);
-        })
-      );
-
-      const reportRows = Array.isArray(reportsRes.data) ? reportsRes.data : [];
-      setReports(reportRows.map(normalizeReport));
-      const templateRows = Array.isArray(templatesRes.data) ? templatesRes.data : [];
-      setTemplates(templateRows.map(normalizeTemplate));
+      const response = await tasksAPI.projects();
+      const rows = Array.isArray(response.data) ? response.data : [];
+      setProjects(rows.map(normalizeProject));
     } catch {
-      setError('Не удалось загрузить задачи или отчеты.');
-    } finally {
-      setLoading(false);
+      setProjects([]);
     }
   };
 
   const loadAssignees = async () => {
     try {
-      const res = await tasksAPI.assignees();
-      const list = Array.isArray(res.data) ? res.data : [];
+      const response = await tasksAPI.assignees();
+      const list = Array.isArray(response.data) ? response.data : [];
       setAssigneeOptions(
-        list.map((u) => ({
-          id: u.id,
-          name: u.full_name || u.username || `ID ${u.id}`,
-          role: u.role || '',
+        list.map((item) => ({
+          id: item.id,
+          name: item.full_name || item.username || `ID ${item.id}`,
         }))
       );
     } catch {
-      const fallback = Array.from(
-        new Map(
-          tasks.map((task) => [task.assigneeId, { id: task.assigneeId, name: task.assigneeName, role: '' }])
-        ).values()
-      );
-      setAssigneeOptions(fallback);
+      setAssigneeOptions([]);
+    }
+  };
+
+  const loadTasksAndReports = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const taskRequest = isProjectsView
+        ? (canSeeProjects && selectedProjectId
+            ? tasksAPI.projectTasks(selectedProjectId)
+            : Promise.resolve({ data: [] }))
+        : tasksAPI.my();
+
+      const [taskRes, reportsRes] = await Promise.all([
+        taskRequest.catch(() => ({ data: [] })),
+        canViewDaily && isProjectsView && selectedProjectId
+          ? tasksAPI.dailyReports({ date: reportDate }).catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] }),
+      ]);
+
+      const taskRows = Array.isArray(taskRes.data) ? taskRes.data : [];
+      setTasks(taskRows.map(normalizeTask));
+
+      const reportRows = Array.isArray(reportsRes.data) ? reportsRes.data : [];
+      setReports(reportRows.map(normalizeReport));
+    } catch {
+      setError('Не удалось загрузить задачи.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadTaskMeta = async (taskId) => {
+    try {
+      const [checklistRes, commentsRes, historyRes, subtasksRes] = await Promise.all([
+        tasksAPI.checklist(taskId).catch(() => ({ data: [] })),
+        tasksAPI.comments(taskId).catch(() => ({ data: [] })),
+        tasksAPI.history(taskId).catch(() => ({ data: [] })),
+        tasksAPI.subtasks(taskId).catch(() => ({ data: [] })),
+      ]);
+      setTaskChecklist(Array.isArray(checklistRes.data) ? checklistRes.data.map(normalizeChecklistItem) : []);
+      setTaskComments(Array.isArray(commentsRes.data) ? commentsRes.data : []);
+      setTaskHistory(Array.isArray(historyRes.data) ? historyRes.data : []);
+      setTaskSubtasks(Array.isArray(subtasksRes.data) ? subtasksRes.data.map(normalizeSubtask) : []);
+    } catch {
+      setTaskChecklist([]);
+      setTaskComments([]);
+      setTaskHistory([]);
+      setTaskSubtasks([]);
+    }
+  };
+
+  const loadProjectReport = async (projectId) => {
+    if (!projectId || !canSeeProjects) {
+      setProjectReport(null);
+      return;
+    }
+    try {
+      const response = await tasksAPI.projectReport(projectId);
+      setProjectReport(normalizeProjectReport(response.data));
+    } catch {
+      setProjectReport(null);
     }
   };
 
   useEffect(() => {
-    loadAll();
+    loadProjects();
     loadAssignees();
   }, []);
 
   useEffect(() => {
-    setTaskSection(role === 'superadmin' ? 'team' : 'my');
-  }, [role]);
+    loadTasksAndReports();
+  }, [taskSection, selectedProjectId, reportDate, isProjectsView]);
 
   useEffect(() => {
-    if (!showModal) return;
-    setForm((prev) => ({
+    if (!isProjectsView || !selectedProjectId) {
+      setProjectReport(null);
+      return;
+    }
+    loadProjectReport(selectedProjectId);
+  }, [isProjectsView, selectedProjectId]);
+
+  useEffect(() => {
+    if (!activeTask) return;
+    const current = tasks.find((item) => item.id === activeTask.id);
+    if (current) setActiveTask(current);
+  }, [tasks, activeTask]);
+
+  useEffect(() => {
+    if (!activeTask) return;
+    loadTaskMeta(activeTask.id);
+  }, [activeTask?.id]);
+
+  useEffect(() => {
+    if (!showTaskModal) return;
+    setTaskForm((prev) => ({
       ...prev,
+      board_id: prev.board_id || selectedProjectId || '',
       assignee_id: prev.assignee_id || user?.id || '',
     }));
-  }, [showModal, user?.id]);
+  }, [showTaskModal, selectedProjectId, user?.id]);
 
-  useEffect(() => {
-    loadAll();
-  }, [reportDate, taskSection, filters]);
-
-  useEffect(() => {
-    setFilters((prev) => {
-      const nextDefault = getDefaultTaskType(taskSection);
-      if (!prev.taskType || prev.taskType === 'all' || prev.taskType === 'regular') {
-        return {
-          ...prev,
-          taskType: nextDefault,
-        };
-      }
-      return prev;
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      if (filters.assigneeId && String(task.assigneeId || '') !== String(filters.assigneeId)) return false;
+      if (filters.priority && task.priority !== filters.priority) return false;
+      if (filters.status && task.status !== filters.status) return false;
+      if (filters.overdueOnly && !task.isOverdue) return false;
+      return true;
     });
-  }, [taskSection]);
+  }, [tasks, filters]);
 
-  const openTaskDetails = async (task) => {
-    if (!task?.id) return;
-    setSelectedTask(task);
-    setCommentText('');
-    setDetailLoading(true);
-    try {
-      const [commentsRes, historyRes, detailRes] = await Promise.all([
-        tasksAPI.comments(task.id).catch(() => ({ data: [] })),
-        tasksAPI.history(task.id).catch(() => ({ data: [] })),
-        tasksAPI.detail(task.id).catch(() => ({ data: task })),
-      ]);
-      setTaskComments(Array.isArray(commentsRes.data) ? commentsRes.data : []);
-      setTaskHistory(Array.isArray(historyRes.data) ? historyRes.data : []);
-      setSelectedTask(normalizeTask(detailRes.data || task));
-    } catch {
-      setError('Не удалось загрузить детали задачи.');
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  const visibleTasks = useMemo(() => {
-    if (!filters.taskType || filters.taskType === 'all') return tasks;
-    return tasks.filter((task) => task.taskType === filters.taskType);
-  }, [tasks, filters.taskType]);
-
-  const hiddenSystemTasksCount = useMemo(
-    () => (taskSection === 'team' && filters.taskType === 'regular' ? tasks.filter((task) => task.isSystem).length : 0),
-    [taskSection, filters.taskType, tasks]
+  const selectedProject = useMemo(
+    () => projects.find((project) => String(project.id) === String(selectedProjectId)) || null,
+    [projects, selectedProjectId]
   );
+
+  const filteredProjects = useMemo(() => {
+    if (!projectStatusFilter) return projects;
+    return projects.filter((project) => project.status === projectStatusFilter);
+  }, [projects, projectStatusFilter]);
+
+  const projectMemberOptions = useMemo(() => {
+    return assigneeOptions.filter((option) => {
+      if (role === 'intern') return false;
+      return true;
+    });
+  }, [assigneeOptions, role]);
+
+  useEffect(() => {
+    if (!projectStatusFilter) return;
+    if (!selectedProjectId) return;
+    const stillVisible = filteredProjects.some((project) => String(project.id) === String(selectedProjectId));
+    if (!stillVisible) {
+      setSelectedProjectId(filteredProjects[0] ? String(filteredProjects[0].id) : '');
+    }
+  }, [projectStatusFilter, filteredProjects, selectedProjectId]);
+
+  const selectedTaskFormProject = useMemo(
+    () => projects.find((project) => String(project.id) === String(taskForm.board_id)) || null,
+    [projects, taskForm.board_id]
+  );
+
+  const visibleAssigneeOptions = useMemo(() => {
+    const baseOptions = [...assigneeOptions];
+    if (user?.id && !baseOptions.some((option) => Number(option.id) === Number(user.id))) {
+      baseOptions.unshift({
+        id: user.id,
+        name: user.full_name || user.username || `ID ${user.id}`,
+      });
+    }
+
+    const scopedProject = selectedTaskFormProject || (isProjectsView ? selectedProject : null);
+    if (!scopedProject) {
+      return baseOptions;
+    }
+
+    const memberIds = new Set(scopedProject.members.map((member) => Number(member.id)));
+    const filtered = baseOptions.filter((option) => memberIds.has(Number(option.id)));
+
+    if (filtered.length > 0) {
+      return filtered;
+    }
+
+    return scopedProject.members.map((member) => ({
+      id: member.id,
+      name: member.full_name || member.username || `ID ${member.id}`,
+    }));
+  }, [assigneeOptions, isProjectsView, selectedProject, selectedTaskFormProject, user]);
+
+  const selectedProjectTaskRows = useMemo(() => {
+    if (!selectedProject) return [];
+    return [...filteredTasks].sort((a, b) => {
+      const priorityDiff = (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99);
+      if (priorityDiff !== 0) return priorityDiff;
+      return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
+    });
+  }, [filteredTasks, selectedProject]);
 
   const columns = useMemo(() => {
     const map = new Map();
     DEFAULT_COLUMN_ORDERS.forEach((order) => {
-      map.set(order, {
-        order,
-        id: null,
-        name: DEFAULT_COLUMN_NAMES[order],
-        items: [],
-      });
+      map.set(order, { order, id: null, name: DEFAULT_COLUMN_NAMES[order], items: [] });
     });
 
-    visibleTasks.forEach((task) => {
+    filteredTasks.forEach((task) => {
       const order = task.columnOrder || 1;
       if (!map.has(order)) {
         map.set(order, {
@@ -363,10 +673,10 @@ export default function Tasks() {
           items: [],
         });
       }
-      const col = map.get(order);
-      if (!col.id) col.id = task.columnId;
-      if (task.columnName) col.name = task.columnName;
-      col.items.push(task);
+      const column = map.get(order);
+      if (!column.id) column.id = task.columnId;
+      if (task.columnName) column.name = task.columnName;
+      column.items.push(task);
     });
 
     return Array.from(map.values())
@@ -376,142 +686,256 @@ export default function Tasks() {
         items: [...column.items].sort((a, b) => {
           const priorityDiff = (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99);
           if (priorityDiff !== 0) return priorityDiff;
-          return new Date(b.updatedAt) - new Date(a.updatedAt);
+          return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
         }),
       }));
-  }, [visibleTasks]);
+  }, [filteredTasks]);
 
-  const taskSummary = useMemo(() => {
-    const overdue = visibleTasks.filter((task) => task.isOverdue).length;
-    const completed = visibleTasks.filter((task) => task.status === 'completed').length;
-    const inProgress = visibleTasks.filter((task) => task.status === 'in_progress').length;
-    const review = visibleTasks.filter((task) => task.status === 'review').length;
-    const withAssignee = visibleTasks.filter((task) => task.assigneeId).length;
-    const system = visibleTasks.filter((task) => task.isSystem).length;
+  const getDefaultAssigneeId = () => {
+    const projectId = taskForm.board_id || selectedProjectId;
+    if (!projectId) {
+      return user?.id || '';
+    }
 
-    return {
-      total: visibleTasks.length,
-      overdue,
-      completed,
-      inProgress,
-      review,
-      withAssignee,
-      system,
-    };
-  }, [visibleTasks]);
+    const project = projects.find((item) => String(item.id) === String(projectId));
+    if (!project) {
+      return user?.id || '';
+    }
 
-  const activeFilterCount = useMemo(
-    () =>
-      Object.entries(filters).filter(([key, value]) => {
-        if (value === '' || value === null || value === undefined) return false;
-        if (key === 'taskType') return value !== getDefaultTaskType(taskSection);
-        return true;
-      }).length,
-    [filters, taskSection]
-  );
+    const currentUserIsMember = project.members.some((member) => Number(member.id) === Number(user?.id));
+    if (currentUserIsMember) {
+      return user?.id || '';
+    }
 
-  const reportSummary = useMemo(() => {
-    return reports.reduce((acc, report) => {
-      acc.total += 1;
-      if (report.status === 'ACCEPTED') acc.accepted += 1;
-      else if (report.status === 'REVISION_REQUIRED') acc.revision += 1;
-      else acc.sent += 1;
-      return acc;
-    }, { total: 0, sent: 0, accepted: 0, revision: 0 });
-  }, [reports]);
+    if (project.responsibleUserId) {
+      return project.responsibleUserId;
+    }
 
-  const resetFilters = () => {
-    setFilters({
-      assignee: '',
-      status: '',
-      priority: '',
-      taskType: getDefaultTaskType(taskSection),
-      overdue: '',
-      due_date_from: '',
-      due_date_to: '',
+    if (project.members.length > 0) {
+      return project.members[0].id;
+    }
+
+    return '';
+  };
+
+  useEffect(() => {
+    if (!showTaskModal || editingTaskId) return;
+    if (!visibleAssigneeOptions.length) return;
+
+    const currentExists = visibleAssigneeOptions.some(
+      (option) => String(option.id) === String(taskForm.assignee_id)
+    );
+
+    if (!currentExists) {
+      setTaskForm((prev) => ({
+        ...prev,
+        assignee_id: String(visibleAssigneeOptions[0].id),
+      }));
+    }
+  }, [visibleAssigneeOptions, showTaskModal, editingTaskId, taskForm.assignee_id]);
+
+  const resetTaskForm = () => {
+    setTaskForm({
+      board_id: selectedProjectId || '',
+      title: '',
+      description: '',
+      priority: 'medium',
+      due_date: '',
+      assignee_id: getDefaultAssigneeId(),
     });
   };
 
-  const createTask = async () => {
-    const title = form.title.trim();
-    if (!title) return;
+  const saveTask = async () => {
+    const title = taskForm.title.trim();
+    if (!title) {
+      setError('Название задачи не может быть пустым.');
+      return;
+    }
+
+    if (isProjectsView && !editingTaskId && !taskForm.board_id) {
+      setError('В разделе "Проекты" сначала выберите проект.');
+      return;
+    }
+
     try {
-      const assigneeId = Number(form.assignee_id || user?.id);
-      await tasksAPI.create({
-        title,
-        description: form.description.trim(),
-        assignee_id: assigneeId,
-        due_date: form.due_date || null,
-        priority: form.priority,
-      });
-      setShowModal(false);
-      setForm({
-        title: '',
-        description: '',
-        priority: 'medium',
-        due_date: '',
-        assignee_id: '',
-      });
-      await loadAll();
-    } catch {
-      setError('Не удалось создать задачу.');
+      if (editingTaskId) {
+        await tasksAPI.update(editingTaskId, {
+          title,
+          description: taskForm.description.trim(),
+          assignee: taskForm.assignee_id ? Number(taskForm.assignee_id) : null,
+          due_date: taskForm.due_date || null,
+          priority: taskForm.priority,
+        });
+      } else {
+        await tasksAPI.create({
+          board_id: taskForm.board_id || null,
+          title,
+          description: taskForm.description.trim(),
+          assignee_id: taskForm.board_id && taskForm.assignee_id ? Number(taskForm.assignee_id) : null,
+          due_date: taskForm.due_date || null,
+          priority: taskForm.priority,
+        });
+      }
+      setShowTaskModal(false);
+      setEditingTaskId(null);
+      resetTaskForm();
+      await loadTasksAndReports();
+      await loadProjects();
+    } catch (e) {
+      setError(e.response?.data?.detail || (editingTaskId ? 'Не удалось обновить задачу.' : 'Не удалось создать задачу.'));
+    }
+  };
+
+  const startCreateTask = () => {
+    if (isProjectsView && !selectedProjectId) {
+      setError('Сначала выберите проект, затем создавайте задачу.');
+      return;
+    }
+    setEditingTaskId(null);
+    resetTaskForm();
+    setShowTaskModal(true);
+  };
+
+  const startEditTask = () => {
+    if (!activeTask) return;
+    setEditingTaskId(activeTask.id);
+    setTaskForm({
+      board_id: activeTask.boardId || '',
+      title: activeTask.title || '',
+      description: activeTask.description || '',
+      priority: activeTask.priority || 'medium',
+      due_date: activeTask.dueDate || '',
+      assignee_id: activeTask.assigneeId || '',
+    });
+    setShowTaskModal(true);
+  };
+
+  const deleteTask = async () => {
+    if (!activeTask) return;
+    const ok = window.confirm(`Удалить задачу "${activeTask.title}"?`);
+    if (!ok) return;
+    try {
+      await tasksAPI.delete(activeTask.id);
+      setActiveTask(null);
+      await loadTasksAndReports();
+      await loadProjects();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось удалить задачу.');
+    }
+  };
+
+  const closeProjectModal = () => {
+    setShowProjectModal(false);
+    setEditingProjectId(null);
+    setProjectForm({
+      name: '',
+      description: '',
+      status: 'planning',
+      end_date: '',
+      responsible_user_id: '',
+      member_ids: [],
+    });
+  };
+
+  const openCreateProjectModal = () => {
+    setError('');
+    setEditingProjectId(null);
+    setProjectForm({
+      name: '',
+      description: '',
+      status: 'planning',
+      end_date: '',
+      responsible_user_id: user?.id ? String(user.id) : '',
+      member_ids: [],
+    });
+    setShowProjectModal(true);
+  };
+
+  const startEditProject = () => {
+    if (!selectedProject) return;
+    setError('');
+    setEditingProjectId(selectedProject.id);
+    setProjectForm({
+      name: selectedProject.name || '',
+      description: selectedProject.description || '',
+      status: selectedProject.status || 'planning',
+      end_date: selectedProject.endDate || '',
+      responsible_user_id: selectedProject.responsibleUserId ? String(selectedProject.responsibleUserId) : '',
+      member_ids: selectedProject.members.map((member) => Number(member.id)),
+    });
+    setShowProjectModal(true);
+  };
+
+  const saveProject = async () => {
+    const name = projectForm.name.trim();
+    if (!name) {
+      setError('Название проекта обязательно.');
+      return;
+    }
+
+    const responsibleUserId = projectForm.responsible_user_id ? Number(projectForm.responsible_user_id) : null;
+    const memberIds = new Set(projectForm.member_ids.map(Number));
+    if (responsibleUserId) memberIds.add(responsibleUserId);
+
+    try {
+      const payload = {
+        name,
+        description: projectForm.description.trim(),
+        status: projectForm.status,
+        end_date: projectForm.end_date || null,
+        responsible_user_id: responsibleUserId,
+        member_ids: Array.from(memberIds),
+      };
+
+      const response = editingProjectId
+        ? await tasksAPI.updateProject(editingProjectId, payload)
+        : await tasksAPI.createProject(payload);
+
+      const savedProjectId = response?.data?.id ? String(response.data.id) : (editingProjectId ? String(editingProjectId) : '');
+      closeProjectModal();
+      await loadProjects();
+      if (savedProjectId) {
+        setSelectedProjectId(savedProjectId);
+      }
+      await loadTasksAndReports();
+      if (savedProjectId) {
+        await loadProjectReport(savedProjectId);
+      }
+    } catch (e) {
+      setError(
+        e.response?.data?.detail
+          || (editingProjectId ? 'Не удалось обновить проект.' : 'Не удалось создать проект.')
+      );
+    }
+  };
+
+  const changeProjectStatus = async (nextStatus) => {
+    if (!selectedProject || !nextStatus || nextStatus === selectedProject.status) return;
+    try {
+      setUpdatingProjectStatus(true);
+      await tasksAPI.updateProject(selectedProject.id, { status: nextStatus });
+      await Promise.all([loadProjects(), loadTasksAndReports()]);
+      await loadProjectReport(selectedProject.id);
+      setError('');
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось изменить статус проекта.');
+    } finally {
+      setUpdatingProjectStatus(false);
     }
   };
 
   const moveTask = async (task, targetOrder) => {
     if (!task || targetOrder === task.columnOrder) return;
-    if (task.isReadOnly) {
-      setError('Завершенную задачу может менять только администратор.');
-      return;
-    }
-    const target = task.boardColumns.find((c) => Number(c.order) === Number(targetOrder));
+    const target = task.boardColumns.find((item) => Number(item.order) === Number(targetOrder));
     if (!target?.id) return;
     try {
       setMovingTaskId(task.id);
       await tasksAPI.move(task.id, target.id);
-      await loadAll();
-      if (selectedTask?.id === task.id) {
-        await openTaskDetails({ ...task, columnOrder: targetOrder, columnId: target.id });
-      }
-    } catch {
-      setError('Не удалось изменить статус задачи.');
+      await loadTasksAndReports();
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось изменить статус задачи.');
     } finally {
       setMovingTaskId(null);
-    }
-  };
-
-  const addComment = async () => {
-    const text = commentText.trim();
-    if (!selectedTask?.id || !text) return;
-    try {
-      await tasksAPI.addComment(selectedTask.id, { text });
-      setCommentText('');
-      await openTaskDetails(selectedTask);
-    } catch {
-      setError('Не удалось добавить комментарий.');
-    }
-  };
-
-  const uploadAttachment = async (file) => {
-    if (!selectedTask?.id || !file) return;
-    try {
-      setAttachmentUploading(true);
-      await tasksAPI.uploadAttachment(selectedTask.id, file);
-      await openTaskDetails(selectedTask);
-    } catch {
-      setError('Не удалось загрузить вложение. Проверьте размер файла и формат.');
-    } finally {
-      setAttachmentUploading(false);
-    }
-  };
-
-  const deleteAttachment = async (attachmentId) => {
-    if (!selectedTask?.id || !attachmentId) return;
-    try {
-      await tasksAPI.deleteAttachment(selectedTask.id, attachmentId);
-      await openTaskDetails(selectedTask);
-    } catch {
-      setError('Не удалось удалить вложение.');
     }
   };
 
@@ -523,639 +947,1042 @@ export default function Tasks() {
         ...dailyForm,
       });
       setDailyForm({ started_tasks: '', taken_tasks: '', completed_tasks: '', blockers: '' });
-      await loadAll();
+      await loadTasksAndReports();
     } catch {
       setError('Не удалось отправить ежедневный отчет.');
     }
   };
 
-  const resetTemplateForm = () => {
-    setTemplateForm({ title: '', description: '', default_priority: 'medium', subtasks: [''], checklist_items: [''] });
-    setEditingTemplateId(null);
-  };
-
-  const startEditTemplate = (template) => {
-    setTemplateForm({
-      title: template.title,
-      description: template.description,
-      default_priority: template.defaultPriority,
-      subtasks: template.subtasks.map((s) => s.title).concat(['']),
-      checklist_items: template.checklistItems.map((c) => c.text).concat(['']),
-    });
-    setEditingTemplateId(template.id);
-  };
-
-  const saveTemplate = async () => {
-    const title = templateForm.title.trim();
-    if (!title) return;
-    const subtasks = templateForm.subtasks.map((s) => s.trim()).filter(Boolean).map((t) => ({ title: t }));
-    const checklist_items = templateForm.checklist_items.map((c) => c.trim()).filter(Boolean).map((t) => ({ text: t }));
+  const submitComment = async () => {
+    if (!activeTask || !commentText.trim()) return;
     try {
-      if (editingTemplateId) {
-        await tasksAPI.updateTemplate(editingTemplateId, {
-          title,
-          description: templateForm.description.trim(),
-          default_priority: templateForm.default_priority,
-          subtasks,
-          checklist_items,
-        });
-      } else {
-        await tasksAPI.createTemplate({
-          title,
-          description: templateForm.description.trim(),
-          default_priority: templateForm.default_priority,
-          subtasks,
-          checklist_items,
-        });
+      await tasksAPI.addComment(activeTask.id, { text: commentText.trim() });
+      setCommentText('');
+      await loadTaskMeta(activeTask.id);
+    } catch {
+      setError('Не удалось добавить комментарий.');
+    }
+  };
+
+  const startEditComment = (comment) => {
+    setEditingCommentId(comment.id);
+    setEditingCommentText(comment.text || '');
+  };
+
+  const cancelEditComment = () => {
+    setEditingCommentId(null);
+    setEditingCommentText('');
+  };
+
+  const saveCommentEdit = async (commentId) => {
+    if (!activeTask || !editingCommentText.trim()) {
+      setError('Текст комментария не может быть пустым.');
+      return;
+    }
+    try {
+      await tasksAPI.updateComment(activeTask.id, commentId, { text: editingCommentText.trim() });
+      cancelEditComment();
+      await loadTaskMeta(activeTask.id);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось отредактировать комментарий.');
+    }
+  };
+
+  const deleteComment = async (commentId) => {
+    if (!activeTask) return;
+    const ok = window.confirm('Удалить комментарий?');
+    if (!ok) return;
+    try {
+      await tasksAPI.deleteComment(activeTask.id, commentId);
+      if (editingCommentId === commentId) {
+        cancelEditComment();
       }
-      resetTemplateForm();
-      await loadAll();
-    } catch {
-      setError('Не удалось сохранить шаблон задачи.');
+      await loadTaskMeta(activeTask.id);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось удалить комментарий.');
     }
   };
 
-  const deleteTemplate = async (templateId) => {
+  const submitSubtask = async () => {
+    if (!activeTask || !subtaskTitle.trim()) return;
     try {
-      await tasksAPI.deleteTemplate(templateId);
-      await loadAll();
-    } catch {
-      setError('Не удалось удалить шаблон.');
+      await tasksAPI.addSubtask(activeTask.id, { title: subtaskTitle.trim() });
+      setSubtaskTitle('');
+      await Promise.all([loadTaskMeta(activeTask.id), loadTasksAndReports()]);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось добавить подзадачу.');
     }
   };
 
-  const applyTemplate = async (template) => {
-    if (!template?.id) return;
+  const toggleSubtask = async (subtask) => {
+    if (!activeTask) return;
     try {
-      await tasksAPI.applyTemplate({
-        template_id: template.id,
-        assignee_id: Number(form.assignee_id || user?.id),
-      });
-      await loadAll();
-    } catch {
-      setError('Не удалось применить шаблон.');
+      await tasksAPI.updateSubtask(activeTask.id, subtask.id, { is_completed: !subtask.isCompleted });
+      await Promise.all([loadTaskMeta(activeTask.id), loadTasksAndReports()]);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось обновить подзадачу.');
     }
   };
 
-  const handleDragStart = (task) => {
-    if (task?.isReadOnly) return;
-    setDragTaskId(task.id);
-  };
-
-  const handleDropToColumn = async (columnOrder) => {
-    const task = tasks.find((item) => item.id === dragTaskId);
-    setDragTaskId(null);
-    if (!task) return;
-    await moveTask(task, columnOrder);
-  };
-
-  const filterBadges = [
-    filters.assignee &&
-      `Исполнитель: ${filters.assignee === 'unassigned' ? 'Без исполнителя' : assigneeOptions.find((opt) => String(opt.id) === String(filters.assignee))?.name || filters.assignee}`,
-    filters.status &&
-      `Статус: ${
-        {
-          new: 'Новые',
-          in_progress: 'В работе',
-          review: 'На проверке',
-          completed: 'Завершенные',
-        }[filters.status] || filters.status
-      }`,
-    filters.priority && `Приоритет: ${PRIORITY_LABELS[filters.priority] || filters.priority}`,
-    filters.taskType &&
-      filters.taskType !== getDefaultTaskType(taskSection) &&
-      `Тип: ${TASK_TYPE_LABELS[filters.taskType] || filters.taskType}`,
-    filters.overdue && `Просрочка: ${filters.overdue === 'true' ? 'Только просроченные' : 'Без просроченных'}`,
-    filters.due_date_from && `Срок от: ${filters.due_date_from}`,
-    filters.due_date_to && `Срок до: ${filters.due_date_to}`,
-  ].filter(Boolean);
-
-  const reviewDailyReport = async (report, status) => {
-    if (!canReviewDaily || !report?.id) return;
-    let review_comment = '';
-    if (status === 'REVISION_REQUIRED') {
-      review_comment = String(window.prompt('Комментарий для сотрудника (обязательно):', report.reviewComment || '') || '').trim();
-      if (!review_comment) {
-        setError('Комментарий обязателен для статуса "Нужны правки".');
-        return;
-      }
-    }
-
+  const deleteSubtask = async (subtaskId) => {
+    if (!activeTask) return;
     try {
-      await tasksAPI.reviewDailyReport(report.id, { status, review_comment });
-      await loadAll();
-    } catch {
-      setError('Не удалось выполнить ревью ежедневного отчета.');
+      await tasksAPI.deleteSubtask(activeTask.id, subtaskId);
+      await Promise.all([loadTaskMeta(activeTask.id), loadTasksAndReports()]);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось удалить подзадачу.');
     }
   };
 
-  const analyzeReport = async (report) => {
-    if (!report?.id || analyzingReportId === report.id) return;
-    setAnalyzingReportId(report.id);
-    setError('');
+  const submitChecklistItem = async () => {
+    if (!activeTask || !checklistTitle.trim()) return;
     try {
-      const res = await tasksAPI.analyzeReport(report.id);
-      const updated = normalizeReport(res.data);
-      setReports((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-    } catch (err) {
-      const msg = err?.response?.data?.detail || 'Не удалось выполнить AI-анализ.';
-      setError(msg);
-    } finally {
-      setAnalyzingReportId(null);
+      await tasksAPI.addChecklistItem(activeTask.id, { title: checklistTitle.trim() });
+      setChecklistTitle('');
+      await Promise.all([loadTaskMeta(activeTask.id), loadTasksAndReports()]);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось добавить пункт чек-листа.');
     }
   };
 
-  const openProgress = async (person) => {
-    if (!person?.id) return;
-    setProgressUser(person);
-    setProgressLoading(true);
+  const toggleChecklistItem = async (item) => {
+    if (!activeTask) return;
     try {
-      const res = await onboardingAPI.getInternProgress(person.id);
-      setProgressData(res.data || null);
-    } catch {
-      setProgressData(null);
-      setError('Не удалось загрузить прогресс стажера.');
-    } finally {
-      setProgressLoading(false);
+      await tasksAPI.updateChecklistItem(activeTask.id, item.id, { is_completed: !item.isCompleted });
+      await Promise.all([loadTaskMeta(activeTask.id), loadTasksAndReports()]);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось обновить пункт чек-листа.');
     }
   };
 
-  const internRoleByData = String(progressData?.user?.role || '').toLowerCase();
-  const internRoleByCard = String(progressUser?.role || '').toLowerCase();
-  const isInternMember = internRoleByData.includes('intern') || internRoleByCard.includes('intern');
-  const completedDays = Number(progressData?.overview?.completed_days || 0);
-  const totalDays = Number(progressData?.overview?.total_days || 0);
-  const progressPercent = totalDays > 0 ? Math.min(100, Math.round((completedDays / totalDays) * 100)) : 0;
+  const editChecklistItem = async (item) => {
+    if (!activeTask) return;
+    const nextTitle = window.prompt('Новое название пункта', item.title);
+    if (nextTitle === null) return;
+    if (!nextTitle.trim()) {
+      setError('Название пункта не может быть пустым.');
+      return;
+    }
+    try {
+      await tasksAPI.updateChecklistItem(activeTask.id, item.id, { title: nextTitle.trim() });
+      await Promise.all([loadTaskMeta(activeTask.id), loadTasksAndReports()]);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось отредактировать пункт чек-листа.');
+    }
+  };
+
+  const deleteChecklistItem = async (itemId) => {
+    if (!activeTask) return;
+    try {
+      await tasksAPI.deleteChecklistItem(activeTask.id, itemId);
+      await Promise.all([loadTaskMeta(activeTask.id), loadTasksAndReports()]);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Не удалось удалить пункт чек-листа.');
+    }
+  };
 
   return (
     <MainLayout title="Задачи">
       <div className="page-header">
         <div>
-          <div className="page-title">Трекер задач</div>
-          <div className="page-subtitle">Понятный обзор задач, быстрые фильтры и детали без лишних переходов</div>
+          <div className="page-title">{pageTitle}</div>
+          <div className="page-subtitle">{pageSubtitle}</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Новая задача</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {isProjectsView && isManager && (
+            <button className="btn btn-secondary" onClick={openCreateProjectModal}>
+              <Plus size={15} /> Новый проект
+            </button>
+          )}
+          {(!isProjectsView || canAssignProjectTasks) && (
+            <button className="btn btn-primary" onClick={startCreateTask}>
+              <Plus size={15} /> Новая задача
+            </button>
+          )}
+        </div>
       </div>
 
-      {canSwitchTaskSections && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          {canSeeOwnTasksSection && (
-            <button
-              type="button"
-              className={`btn btn-sm ${taskSection === 'my' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setTaskSection('my')}
-            >
-              Мои задачи
-            </button>
-          )}
-          {canSeeTeamTasksSection && (
-            <button
-              type="button"
-              className={`btn btn-sm ${taskSection === 'team' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setTaskSection('team')}
-            >
-              Задачи сотрудников
-            </button>
-          )}
-        </div>
-      )}
-
-      {canViewTeamList && (
+      {error ? (
         <div className="card" style={{ marginBottom: 12 }}>
-          <div className="card-body">
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Моя команда</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {assigneeOptions.map((person) => (
-                <button
-                  key={person.id}
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => openProgress(person)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                >
-                  <Eye size={13} /> {person.name}
-                </button>
-              ))}
-              {assigneeOptions.length === 0 && (
-                <span style={{ color: 'var(--gray-500)', fontSize: 13 }}>Подчиненные пока не найдены.</span>
-              )}
-            </div>
-          </div>
+          <div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div>
         </div>
-      )}
+      ) : null}
 
-      {error ? <div className="card" style={{ marginBottom: 12 }}><div className="card-body" style={{ color: 'var(--danger)' }}>{error}</div></div> : null}
-
-      <div className="tasks-summary-grid">
-        <div className="task-summary-card">
-          <div className="task-summary-label">Всего задач</div>
-          <div className="task-summary-value">{taskSummary.total}</div>
-          <div className="task-summary-note">{taskSection === 'team' ? 'по сотрудникам' : 'в личной доске'}</div>
-        </div>
-        <div className="task-summary-card">
-          <div className="task-summary-label">В работе</div>
-          <div className="task-summary-value">{taskSummary.inProgress}</div>
-          <div className="task-summary-note">На проверке: {taskSummary.review}</div>
-        </div>
-        <div className={`task-summary-card ${taskSummary.overdue ? 'is-alert' : ''}`}>
-          <div className="task-summary-label">Нужны внимание</div>
-          <div className="task-summary-value">{taskSummary.overdue}</div>
-          <div className="task-summary-note">Просроченные задачи</div>
-        </div>
-        <div className="task-summary-card">
-          <div className="task-summary-label">Назначены</div>
-          <div className="task-summary-value">{taskSummary.withAssignee}</div>
-          <div className="task-summary-note">Системных: {taskSummary.system}</div>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-body task-filters-card">
-          <div className="task-filters-header">
-            <div>
-              <div className="task-section-title"><ListFilter size={16} /> Фильтры задач</div>
-              <div className="task-section-subtitle">
-                {activeFilterCount ? `Активно фильтров: ${activeFilterCount}` : 'Показываем все доступные задачи'}
+      {isProjectsView && canSeeProjects ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '320px minmax(0, 1fr)',
+            gap: 16,
+            alignItems: 'start',
+            marginBottom: 16,
+          }}
+        >
+          <div className="card" style={{ position: 'sticky', top: 12 }}>
+            <div className="card-body" style={{ display: 'grid', gap: 12 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 20 }}>Проекты</div>
+                <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4 }}>
+                  {role === 'employee'
+                    ? 'Ваши проекты, участники команды и задачи внутри проектов'
+                    : role === 'projectmanager'
+                      ? 'Ваши проекты и задачи вашей команды'
+                      : 'Проекты компании и командная загрузка'}
+                </div>
               </div>
-            </div>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={resetFilters} disabled={!activeFilterCount}>
-              Сбросить
-            </button>
-          </div>
-          <div className="grid-2">
-            {taskSection === 'team' ? (
-              <div className="form-group">
-                <label className="form-label">Исполнитель</label>
-                <select className="form-select" value={filters.assignee} onChange={(e) => setFilters((prev) => ({ ...prev, assignee: e.target.value }))}>
-                  <option value="">Все</option>
-                  <option value="unassigned">Без исполнителя</option>
-                  {assigneeOptions.map((opt) => (
-                    <option key={opt.id} value={opt.id}>{opt.name}</option>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className={!projectStatusFilter ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+                  onClick={() => setProjectStatusFilter('')}
+                >
+                  Все
+                </button>
+                {Object.entries(PROJECT_STATUS_LABELS).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={projectStatusFilter === value ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+                    onClick={() => setProjectStatusFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Быстрый выбор проекта</label>
+                <select
+                  className="form-select"
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                >
+                  <option value="">Выберите проект</option>
+                  {filteredProjects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name} ({project.taskCount})
+                    </option>
                   ))}
                 </select>
               </div>
-            ) : <div />}
+
+              <div style={{ display: 'grid', gap: 10, maxHeight: '70vh', overflowY: 'auto', paddingRight: 4 }}>
+                {filteredProjects.map((project) => {
+                  const isSelected = String(selectedProjectId) === String(project.id);
+                  return (
+                    <button
+                      key={project.id}
+                      type="button"
+                      className="card"
+                      style={{
+                        textAlign: 'left',
+                        border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border)',
+                        background: isSelected ? 'linear-gradient(180deg, #f4f8ff 0%, #ffffff 100%)' : 'var(--card)',
+                        boxShadow: isSelected ? '0 10px 24px rgba(37, 99, 235, 0.12)' : 'none',
+                      }}
+                      onClick={() => setSelectedProjectId(String(project.id))}
+                    >
+                      <div className="card-body" style={{ display: 'grid', gap: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                          <div style={{ fontWeight: 700, lineHeight: 1.3 }}>{project.name}</div>
+                          <span className={`badge ${PROJECT_STATUS_TONES[project.status] || 'badge-gray'}`}>
+                            {project.statusLabel}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                          {project.description || 'Без описания'}
+                        </div>
+                        <div style={{ fontSize: 12 }}>Ответственный: {project.responsibleUserName}</div>
+                        <div style={{ fontSize: 12 }}>Задачи: {project.taskCount}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+                {filteredProjects.length === 0 ? (
+                  <div style={{ color: 'var(--gray-500)' }}>
+                    {projectStatusFilter ? 'По этому статусу проектов пока нет.' : 'Проектов пока нет.'}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: 16 }}>
+            {selectedProject ? (
+              <div className="card">
+                <div className="card-body" style={{ display: 'grid', gap: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 26, lineHeight: 1.2 }}>{selectedProject.name}</div>
+                      <div style={{ color: 'var(--gray-500)', marginTop: 6 }}>
+                        {selectedProject.description || 'Без описания'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
+                      <span className={`badge ${PROJECT_STATUS_TONES[selectedProject.status] || 'badge-gray'}`}>
+                        {selectedProject.statusLabel}
+                      </span>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <select
+                          className="form-select"
+                          value={selectedProject.status}
+                          onChange={(e) => changeProjectStatus(e.target.value)}
+                          disabled={updatingProjectStatus}
+                          style={{ minWidth: 180 }}
+                        >
+                          {Object.entries(PROJECT_STATUS_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                        {isManager ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={startEditProject}
+                          >
+                            Редактировать проект
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setSelectedProjectId('')}
+                        >
+                          Закрыть проект
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                    Статусы выше слева фильтруют список проектов. Здесь справа можно изменить статус только выбранного проекта.
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+                    <div className="card" style={{ border: '1px solid var(--border)' }}>
+                      <div className="card-body">
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Ответственный</div>
+                        <div style={{ fontWeight: 700, marginTop: 4 }}>{selectedProject.responsibleUserName}</div>
+                      </div>
+                    </div>
+                    <div className="card" style={{ border: '1px solid var(--border)' }}>
+                      <div className="card-body">
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Дата создания</div>
+                        <div style={{ fontWeight: 700, marginTop: 4 }}>
+                          {selectedProject.createdAt ? String(selectedProject.createdAt).slice(0, 10) : '—'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="card" style={{ border: '1px solid var(--border)' }}>
+                      <div className="card-body">
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Дата завершения</div>
+                        <div style={{ fontWeight: 700, marginTop: 4 }}>{selectedProject.endDate || '—'}</div>
+                      </div>
+                    </div>
+                    <div className="card" style={{ border: '1px solid var(--border)' }}>
+                      <div className="card-body">
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Всего задач</div>
+                        <div style={{ fontWeight: 700, marginTop: 4 }}>{selectedProject.taskCount}</div>
+                      </div>
+                    </div>
+                    <div className="card" style={{ border: '1px solid var(--border)' }}>
+                      <div className="card-body">
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Выполненные</div>
+                        <div style={{ fontWeight: 700, marginTop: 4 }}>{selectedProject.completedTaskCount}</div>
+                      </div>
+                    </div>
+                    <div className="card" style={{ border: '1px solid var(--border)' }}>
+                      <div className="card-body">
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>В процессе</div>
+                        <div style={{ fontWeight: 700, marginTop: 4 }}>{selectedProject.inProgressTaskCount}</div>
+                      </div>
+                    </div>
+                    <div className="card" style={{ border: '1px solid var(--border)' }}>
+                      <div className="card-body">
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Просроченные</div>
+                        <div style={{ fontWeight: 700, marginTop: 4 }}>{selectedProject.overdueTaskCount}</div>
+                      </div>
+                    </div>
+                    <div className="card" style={{ border: '1px solid var(--border)' }}>
+                      <div className="card-body">
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Прогресс проекта</div>
+                        <div style={{ fontWeight: 700, marginTop: 4 }}>{selectedProject.progressPercentage}%</div>
+                        <div
+                          style={{
+                            marginTop: 10,
+                            height: 8,
+                            borderRadius: 999,
+                            background: 'var(--gray-100)',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${Math.max(0, Math.min(100, selectedProject.progressPercentage))}%`,
+                              height: '100%',
+                              background: 'var(--primary)',
+                              borderRadius: 999,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="card" style={{ border: '1px solid var(--border)' }}>
+                    <div className="card-body">
+                      <div style={{ fontWeight: 700, marginBottom: 10 }}>Участники проекта</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {selectedProject.members.map((member) => (
+                          <span key={member.id} className="badge badge-gray">
+                            {(member.full_name || member.username) + (member.roleLabel ? ` • ${member.roleLabel}` : '')}
+                          </span>
+                        ))}
+                        {selectedProject.members.length === 0 ? <span style={{ color: 'var(--gray-500)' }}>Участников пока нет.</span> : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  {projectReport ? (
+                    <div className="card" style={{ border: '1px solid var(--border)' }}>
+                      <div className="card-body">
+                        <div style={{ fontWeight: 700, marginBottom: 14 }}>Отчёт по задачам проекта</div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
+                          <div>
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Общее количество задач</div>
+                            <div style={{ fontWeight: 700, marginTop: 4 }}>{projectReport.totalTaskCount}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Выполненные задачи</div>
+                            <div style={{ fontWeight: 700, marginTop: 4 }}>{projectReport.completedTaskCount}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Процент выполнения</div>
+                            <div style={{ fontWeight: 700, marginTop: 4 }}>{projectReport.progressPercentage}%</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Просроченные задачи</div>
+                            <div style={{ fontWeight: 700, marginTop: 4 }}>{projectReport.overdueTaskCount}</div>
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 8 }}>Задачи по статусам</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            <span className="badge badge-gray">К выполнению: {projectReport.statusCounts.to_do}</span>
+                            <span className="badge badge-gray">В работе: {projectReport.statusCounts.in_progress}</span>
+                            <span className="badge badge-gray">На проверке: {projectReport.statusCounts.review}</span>
+                            <span className="badge badge-gray">Выполнено: {projectReport.statusCounts.done}</span>
+                            <span className="badge badge-gray">Заблокировано: {projectReport.statusCounts.blocked}</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 8 }}>Список просроченных задач</div>
+                          {projectReport.overdueTasks.length ? (
+                            <div style={{ display: 'grid', gap: 8 }}>
+                              {projectReport.overdueTasks.map((task) => (
+                                <div
+                                  key={task.id}
+                                  style={{
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 12,
+                                    padding: 12,
+                                    background: 'var(--surface)',
+                                  }}
+                                >
+                                  <div style={{ fontWeight: 700 }}>{task.title}</div>
+                                  <div style={{ marginTop: 4, fontSize: 13, color: 'var(--gray-600)' }}>
+                                    Исполнитель: {task.assigneeUsername}
+                                  </div>
+                                  <div style={{ marginTop: 4, fontSize: 13, color: 'var(--gray-600)' }}>
+                                    Статус: {task.statusLabel}
+                                  </div>
+                                  <div style={{ marginTop: 4, fontSize: 13, color: 'var(--danger-600)' }}>
+                                    Срок: {task.dueDate || '—'}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ color: 'var(--gray-500)' }}>Просроченных задач нет.</div>
+                          )}
+                        </div>
+
+                        <div style={{ marginTop: 16, marginBottom: 16 }}>
+                          <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 8 }}>Эффективность членов команды</div>
+                          {projectReport.assigneeStats.length ? (
+                            <div style={{ display: 'grid', gap: 8 }}>
+                              {projectReport.assigneeStats.map((item) => (
+                                <div
+                                  key={item.name}
+                                  style={{
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 12,
+                                    padding: 12,
+                                    background: 'var(--surface)',
+                                  }}
+                                >
+                                  <div style={{ fontWeight: 700 }}>{item.name}</div>
+                                  <div style={{ marginTop: 6, fontSize: 13, color: 'var(--gray-600)' }}>
+                                    Всего: {item.total} • Выполнено: {item.done} • В работе: {item.inProgress} • На проверке: {item.review}
+                                  </div>
+                                  <div style={{ marginTop: 8 }}>
+                                    <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>Прогресс</div>
+                                    <div
+                                      style={{
+                                        width: '100%',
+                                        height: 8,
+                                        borderRadius: 999,
+                                        background: 'var(--gray-200)',
+                                        overflow: 'hidden',
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          width: `${Math.max(0, Math.min(item.progress, 100))}%`,
+                                          height: '100%',
+                                          background: 'var(--primary)',
+                                          borderRadius: 999,
+                                        }}
+                                      />
+                                    </div>
+                                    <div style={{ marginTop: 4, fontSize: 12, color: 'var(--gray-600)' }}>{item.progress}%</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ color: 'var(--gray-500)' }}>Нет данных по участникам проекта.</div>
+                          )}
+                        </div>
+
+                        <div style={{ marginTop: 20 }}>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              marginBottom: 8,
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Шаблон отчёта</div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => navigator.clipboard.writeText(projectReport.templateReport || '')}
+                                disabled={!projectReport.templateReport}
+                              >
+                                Копировать текст
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                onClick={() => downloadProjectReportDocument(selectedProject, projectReport)}
+                              >
+                                Скачать DOC
+                              </button>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              border: '1px solid var(--border)',
+                              borderRadius: 22,
+                              overflow: 'hidden',
+                              background: 'linear-gradient(180deg, #f7fbff 0%, #ffffff 100%)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                padding: 24,
+                                background: 'linear-gradient(135deg, #edf4ff 0%, #f9fbff 100%)',
+                                borderBottom: '1px solid var(--border)',
+                              }}
+                            >
+                              <div style={{ fontSize: 32, fontWeight: 900, letterSpacing: '-0.03em' }}>{selectedProject.name}</div>
+                              <div style={{ marginTop: 8, color: 'var(--gray-600)', maxWidth: 720, lineHeight: 1.6 }}>
+                                {selectedProject.description || 'Описание проекта пока не заполнено.'}
+                              </div>
+                            </div>
+
+                            <div style={{ padding: 24, display: 'grid', gap: 20 }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                                <div className="card" style={{ border: '1px solid var(--border)' }}>
+                                  <div className="card-body">
+                                    <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Ответственный</div>
+                                    <div style={{ fontWeight: 800, marginTop: 6 }}>{selectedProject.responsibleUserName || '—'}</div>
+                                  </div>
+                                </div>
+                                <div className="card" style={{ border: '1px solid var(--border)' }}>
+                                  <div className="card-body">
+                                    <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Статус проекта</div>
+                                    <div style={{ fontWeight: 800, marginTop: 6 }}>{selectedProject.statusLabel}</div>
+                                  </div>
+                                </div>
+                                <div className="card" style={{ border: '1px solid var(--border)' }}>
+                                  <div className="card-body">
+                                    <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Дата создания</div>
+                                    <div style={{ fontWeight: 800, marginTop: 6 }}>{formatDisplayDate(selectedProject.createdAt)}</div>
+                                  </div>
+                                </div>
+                                <div className="card" style={{ border: '1px solid var(--border)' }}>
+                                  <div className="card-body">
+                                    <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Дата завершения</div>
+                                    <div style={{ fontWeight: 800, marginTop: 6 }}>{formatDisplayDate(selectedProject.endDate)}</div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div>
+                                <div style={{ fontWeight: 800, marginBottom: 10 }}>В команде</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                  {selectedProject.members.length ? selectedProject.members.map((member) => (
+                                    <span key={member.id} className="badge badge-gray">
+                                      {(member.full_name || member.username) + (member.roleLabel ? ` • ${member.roleLabel}` : '')}
+                                    </span>
+                                  )) : <span style={{ color: 'var(--gray-500)' }}>Участники не добавлены.</span>}
+                                </div>
+                              </div>
+
+                              <div className="card" style={{ border: '1px solid var(--border)', background: '#fffdf6' }}>
+                                <div className="card-body" style={{ display: 'grid', gap: 14 }}>
+                                  <div style={{ fontWeight: 800 }}>Насколько проект готов</div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+                                    <div>
+                                  <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Всего задач</div>
+                                  <div style={{ fontWeight: 800, marginTop: 4 }}>{projectReport.totalTaskCount}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Выполненные задачи</div>
+                                  <div style={{ fontWeight: 800, marginTop: 4 }}>{projectReport.completedTaskCount}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Процент выполнения</div>
+                                  <div style={{ fontWeight: 800, marginTop: 4 }}>{projectReport.progressPercentage}%</div>
+                                </div>
+                                    <div>
+                                      <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Просрочено</div>
+                                      <div style={{ fontWeight: 800, marginTop: 4 }}>{projectReport.overdueTaskCount}</div>
+                                    </div>
+                                  </div>
+                                  <div
+                                    style={{
+                                      width: '100%',
+                                      height: 10,
+                                      borderRadius: 999,
+                                      background: 'var(--gray-200)',
+                                      overflow: 'hidden',
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width: `${Math.max(0, Math.min(projectReport.progressPercentage, 100))}%`,
+                                        height: '100%',
+                                        background: 'linear-gradient(90deg, #2563eb, #60a5fa)',
+                                        borderRadius: 999,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div>
+                                <div style={{ fontWeight: 800, marginBottom: 10 }}>Текст шаблона</div>
+                                <textarea
+                                  readOnly
+                                  value={projectReport.templateReport || ''}
+                                  rows={14}
+                                  style={{
+                                    width: '100%',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 14,
+                                    padding: 14,
+                                    background: '#fff',
+                                    color: 'var(--text)',
+                                    resize: 'vertical',
+                                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                                    fontSize: 13,
+                                    lineHeight: 1.5,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="card" style={{ border: '1px solid var(--border)' }}>
+                    <div className="card-body">
+                      <div style={{ fontWeight: 700, marginBottom: 10 }}>Задачи проекта</div>
+                      <div className="table-wrap">
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>Задача</th>
+                              <th>Исполнитель</th>
+                              <th>Статус</th>
+                              <th>Приоритет</th>
+                              <th>Срок</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedProjectTaskRows.map((task) => (
+                              <tr
+                                key={task.id}
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => setActiveTask(task)}
+                              >
+                                <td>{task.id}</td>
+                                <td>{task.title}</td>
+                                <td>{task.assigneeName}</td>
+                                <td>{STATUS_LABELS[task.status] || task.status}</td>
+                                <td>{task.priorityLabel}</td>
+                                <td>{task.dueDate || '—'}</td>
+                              </tr>
+                            ))}
+                            {selectedProjectTaskRows.length === 0 ? (
+                              <tr><td colSpan={6}>В этом проекте пока нет задач.</td></tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="card">
+                <div className="card-body" style={{ display: 'grid', placeItems: 'center', minHeight: 260, textAlign: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 24, marginBottom: 8 }}>Выберите проект</div>
+                    <div style={{ color: 'var(--gray-500)', maxWidth: 420 }}>
+                      Слева отображается список проектов. Выберите любой проект, чтобы увидеть участников, ответственного и задачи внутри проекта.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-body">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
             <div className="form-group">
-              <label className="form-label">Статус</label>
-              <select className="form-select" value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}>
+              <label className="form-label">Исполнитель</label>
+              <select
+                className="form-select"
+                value={filters.assigneeId}
+                onChange={(e) => setFilters((prev) => ({ ...prev, assigneeId: e.target.value }))}
+              >
                 <option value="">Все</option>
-                <option value="new">Новые</option>
-                <option value="in_progress">В работе</option>
-                <option value="review">На проверке</option>
-                <option value="completed">Завершенные</option>
+                {assigneeOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
               </select>
             </div>
             <div className="form-group">
               <label className="form-label">Приоритет</label>
-              <select className="form-select" value={filters.priority} onChange={(e) => setFilters((prev) => ({ ...prev, priority: e.target.value }))}>
+              <select
+                className="form-select"
+                value={filters.priority}
+                onChange={(e) => setFilters((prev) => ({ ...prev, priority: e.target.value }))}
+              >
                 <option value="">Все</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
+                <option value="critical">Критический</option>
+                <option value="high">Высокий</option>
+                <option value="medium">Средний</option>
+                <option value="low">Низкий</option>
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Тип задачи</label>
-              <select className="form-select" value={filters.taskType} onChange={(e) => setFilters((prev) => ({ ...prev, taskType: e.target.value }))}>
-                <option value="all">Все</option>
-                <option value="regular">Обычные</option>
-                <option value="system">Системные</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Просрочка</label>
-              <select className="form-select" value={filters.overdue} onChange={(e) => setFilters((prev) => ({ ...prev, overdue: e.target.value }))}>
+              <label className="form-label">Статус</label>
+              <select
+                className="form-select"
+                value={filters.status}
+                onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
+              >
                 <option value="">Все</option>
-                <option value="true">Только просроченные</option>
-                <option value="false">Без просроченных</option>
+                <option value="to_do">К выполнению</option>
+                <option value="in_progress">В работе</option>
+                <option value="review">На проверке</option>
+                <option value="done">Выполнено</option>
+                <option value="blocked">Заблокировано</option>
               </select>
             </div>
-            <div className="form-group">
-              <label className="form-label">Срок от</label>
-              <input className="form-input" type="date" value={filters.due_date_from} onChange={(e) => setFilters((prev) => ({ ...prev, due_date_from: e.target.value }))} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Срок до</label>
-              <input className="form-input" type="date" value={filters.due_date_to} onChange={(e) => setFilters((prev) => ({ ...prev, due_date_to: e.target.value }))} />
-            </div>
+            <label className="form-group" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 28 }}>
+              <input
+                type="checkbox"
+                checked={filters.overdueOnly}
+                onChange={(e) => setFilters((prev) => ({ ...prev, overdueOnly: e.target.checked }))}
+              />
+              Только просроченные
+            </label>
           </div>
-          {filterBadges.length > 0 ? (
-            <div className="task-filter-badges">
-              {filterBadges.map((badge) => (
-                <span key={badge} className="task-filter-badge">{badge}</span>
-              ))}
-            </div>
-          ) : null}
         </div>
       </div>
 
       {loading ? (
         <div className="card"><div className="card-body">Загрузка...</div></div>
+      ) : isProjectsView && !selectedProject ? (
+        <div className="card">
+          <div className="card-body" style={{ color: 'var(--gray-600)' }}>
+            Выберите проект сверху, чтобы увидеть его задачи, участников и кто чем занимается.
+          </div>
+        </div>
       ) : (
         <>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-body" style={{ display: 'grid', gap: 14 }}>
-              <div style={{ fontWeight: 700 }}>Шаблоны задач</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 14 }}>
-                {/* Form */}
-                <div style={{ display: 'grid', gap: 10 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--gray-700)' }}>
-                    {editingTemplateId ? 'Редактирование шаблона' : 'Новый шаблон'}
-                  </div>
-                  <input
-                    className="form-input"
-                    placeholder="Название шаблона"
-                    value={templateForm.title}
-                    onChange={(e) => setTemplateForm((p) => ({ ...p, title: e.target.value }))}
-                  />
-                  <textarea
-                    className="form-textarea"
-                    placeholder="Описание шаблона"
-                    rows={2}
-                    value={templateForm.description}
-                    onChange={(e) => setTemplateForm((p) => ({ ...p, description: e.target.value }))}
-                  />
-                  <select
-                    className="form-select"
-                    value={templateForm.default_priority}
-                    onChange={(e) => setTemplateForm((p) => ({ ...p, default_priority: e.target.value }))}
-                  >
-                    <option value="low">Низкий</option>
-                    <option value="medium">Средний</option>
-                    <option value="high">Высокий</option>
-                    <option value="critical">Критический</option>
-                  </select>
-
-                  {/* Subtasks */}
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-600)' }}>Подзадачи</div>
-                  {templateForm.subtasks.map((val, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: 6 }}>
-                      <input
-                        className="form-input"
-                        placeholder={`Подзадача ${idx + 1}`}
-                        value={val}
-                        onChange={(e) => {
-                          const next = [...templateForm.subtasks];
-                          next[idx] = e.target.value;
-                          setTemplateForm((p) => ({ ...p, subtasks: next }));
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '0 8px', flexShrink: 0 }}
-                        onClick={() => {
-                          const next = templateForm.subtasks.filter((_, i) => i !== idx);
-                          setTemplateForm((p) => ({ ...p, subtasks: next.length ? next : [''] }));
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    style={{ alignSelf: 'flex-start' }}
-                    onClick={() => setTemplateForm((p) => ({ ...p, subtasks: [...p.subtasks, ''] }))}
-                  >
-                    + Добавить подзадачу
-                  </button>
-
-                  {/* Checklist */}
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-600)' }}>Чек-лист</div>
-                  {templateForm.checklist_items.map((val, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: 6 }}>
-                      <input
-                        className="form-input"
-                        placeholder={`Пункт ${idx + 1}`}
-                        value={val}
-                        onChange={(e) => {
-                          const next = [...templateForm.checklist_items];
-                          next[idx] = e.target.value;
-                          setTemplateForm((p) => ({ ...p, checklist_items: next }));
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '0 8px', flexShrink: 0 }}
-                        onClick={() => {
-                          const next = templateForm.checklist_items.filter((_, i) => i !== idx);
-                          setTemplateForm((p) => ({ ...p, checklist_items: next.length ? next : [''] }));
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    style={{ alignSelf: 'flex-start' }}
-                    onClick={() => setTemplateForm((p) => ({ ...p, checklist_items: [...p.checklist_items, ''] }))}
-                  >
-                    + Добавить пункт чек-листа
-                  </button>
-
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-primary" type="button" onClick={saveTemplate}>
-                      {editingTemplateId ? 'Сохранить изменения' : 'Создать шаблон'}
-                    </button>
-                    {editingTemplateId && (
-                      <button className="btn btn-secondary" type="button" onClick={resetTemplateForm}>
-                        Отмена
-                      </button>
-                    )}
-                  </div>
+          <div className="kanban-board">
+            {columns.map((column) => (
+              <div key={column.order} className="kanban-col">
+                <div className="kanban-col-header">
+                  <span className="kanban-col-title">{column.name}</span>
+                  <span className="badge badge-blue">{column.items.length}</span>
                 </div>
-
-                {/* Template list */}
-                <div style={{ display: 'grid', gap: 10, alignContent: 'start' }}>
-                  {templates.map((template) => (
-                    <div key={template.id} className="card" style={{ border: `1px solid ${editingTemplateId === template.id ? 'var(--blue-400)' : 'var(--gray-200)'}` }}>
-                      <div className="card-body" style={{ display: 'grid', gap: 8 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                          <div style={{ fontWeight: 700, fontSize: 14 }}>{template.title}</div>
-                          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                            <span className="badge badge-blue">{PRIORITY_LABELS[template.defaultPriority] || template.defaultPriority}</span>
-                            {!template.isActive && <span className="badge badge-gray">Неактивен</span>}
-                          </div>
-                        </div>
-                        {template.description && (
-                          <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>{template.description}</div>
-                        )}
-                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Автор: {template.createdBy || '-'}</div>
-                        {template.subtasks.length > 0 && (
-                          <div style={{ fontSize: 12, color: 'var(--gray-700)' }}>
-                            <span style={{ fontWeight: 600 }}>Подзадачи:</span>{' '}
-                            {template.subtasks.map((item) => item.title).join(', ')}
-                          </div>
-                        )}
-                        {template.checklistItems.length > 0 && (
-                          <div style={{ fontSize: 12, color: 'var(--gray-700)' }}>
-                            <span style={{ fontWeight: 600 }}>Чек-лист:</span>{' '}
-                            {template.checklistItems.map((item) => item.text).join(', ')}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          <button className="btn btn-secondary btn-sm" type="button" onClick={() => applyTemplate(template)}>
-                            Применить
-                          </button>
-                          <button className="btn btn-secondary btn-sm" type="button" onClick={() => startEditTemplate(template)}>
-                            Изменить
-                          </button>
+                {column.items.map((task) => (
+                  <button
+                    key={task.id}
+                    type="button"
+                    className="kanban-card"
+                    style={{ textAlign: 'left', border: activeTask?.id === task.id ? '1px solid var(--primary)' : '1px solid transparent' }}
+                    onClick={() => setActiveTask(task)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                      <div className="kanban-card-title">{task.title}</div>
+                      {task.isOverdue ? <span className="badge badge-red">Просрочено</span> : null}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 8 }}>{task.description || 'Без описания'}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      <span className="badge badge-blue">{task.priorityLabel}</span>
+                      <span className="badge badge-gray">{STATUS_LABELS[task.status] || task.status}</span>
+                      {task.boardName ? <span className="badge badge-gray">{task.boardName}</span> : null}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Исполнитель: {task.assigneeName}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Постановщик: {task.reporterName || '-'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Срок: {task.dueDate || '—'}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                      {DEFAULT_COLUMN_ORDERS.map((order) => (
+                        <span key={`${task.id}-${order}`}>
                           <button
                             className="btn btn-secondary btn-sm"
                             type="button"
-                            style={{ color: 'var(--red-600)' }}
-                            onClick={() => deleteTemplate(template.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              moveTask(task, order);
+                            }}
+                            disabled={movingTaskId === task.id || order === task.columnOrder || task.status === 'done'}
                           >
-                            Удалить
+                            {DEFAULT_COLUMN_NAMES[order]}
                           </button>
-                        </div>
-                      </div>
+                        </span>
+                      ))}
                     </div>
-                  ))}
-                  {templates.length === 0 && (
-                    <div style={{ color: 'var(--gray-500)', fontSize: 13 }}>Шаблонов пока нет.</div>
-                  )}
-                </div>
+                  </button>
+                ))}
               </div>
-            </div>
+            ))}
           </div>
 
-          <div className="task-board-shell">
-            <div className="task-board-heading">
-              <div>
-                <div className="task-section-title">Доска задач</div>
-                <div className="task-section-subtitle">Перетаскивайте карточки между колонками или меняйте статус кнопками на карточке</div>
+          {activeTask ? (
+            <div className="grid-2" style={{ marginTop: 16, gap: 16 }}>
+              <div className="card">
+                <div className="card-body" style={{ display: 'grid', gap: 10 }}>
+                  <div style={{ fontWeight: 700 }}>Карточка задачи</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={startEditTask}>Редактировать</button>
+                    <button className="btn btn-secondary btn-sm" onClick={deleteTask}>Удалить</button>
+                  </div>
+                  <div><strong>{activeTask.title}</strong></div>
+                  <div style={{ color: 'var(--gray-600)' }}>{activeTask.description || 'Без описания'}</div>
+                  <div>Проект: {activeTask.boardName || 'Личная доска'}</div>
+                  <div>Исполнитель: {activeTask.assigneeName}</div>
+                  <div>Приоритет: {activeTask.priorityLabel}</div>
+                  <div>Статус: {STATUS_LABELS[activeTask.status] || activeTask.status}</div>
+                  <div>Срок: {activeTask.dueDate || '—'}</div>
+                  <div>Подзадачи: {activeTask.subtasksCompleted}/{activeTask.subtasksTotal}</div>
+                  <div>Чек-лист: {activeTask.checklistCompleted}/{activeTask.checklistTotal}</div>
+                  <div>Выполнение: {activeTask.completionPercentage}%</div>
+                  <div style={{ height: 10, borderRadius: 999, background: 'var(--gray-100)', overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        width: `${activeTask.completionPercentage}%`,
+                        height: '100%',
+                        background: 'var(--primary)',
+                      }}
+                    />
+                  </div>
+                  {activeTask.canCompleteParent ? (
+                    <div style={{ color: 'var(--success)', fontWeight: 700 }}>
+                      Все подзадачи выполнены. Можно завершить основную задачу.
+                    </div>
+                  ) : null}
+                  {activeTask.isOverdue ? <div style={{ color: '#b91c1c', fontWeight: 700 }}>Задача просрочена</div> : null}
+                </div>
               </div>
-            <div className="task-board-hint">Клик по карточке открывает полные детали, комментарии и историю</div>
-          </div>
-          {hiddenSystemTasksCount > 0 ? (
-            <div className="task-board-callout">
-              Системные задачи скрыты по умолчанию в командной доске: {hiddenSystemTasksCount}. Переключите фильтр "Тип задачи" на "Все" или "Системные".
+
+              <div className="card">
+                <div className="card-body" style={{ display: 'grid', gap: 12 }}>
+                  <div style={{ fontWeight: 700 }}>Подзадачи</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {taskSubtasks.map((subtask) => (
+                      <div key={subtask.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, background: 'var(--gray-50)' }}>
+                        <input
+                          type="checkbox"
+                          checked={subtask.isCompleted}
+                          onChange={() => toggleSubtask(subtask)}
+                        />
+                        <div style={{ flex: 1, textDecoration: subtask.isCompleted ? 'line-through' : 'none' }}>
+                          {subtask.title}
+                        </div>
+                        <button className="btn btn-secondary btn-sm" onClick={() => deleteSubtask(subtask.id)}>Удалить</button>
+                      </div>
+                    ))}
+                    {taskSubtasks.length === 0 ? <div style={{ color: 'var(--gray-500)' }}>Подзадач пока нет.</div> : null}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      className="form-input"
+                      placeholder="Новая подзадача"
+                      value={subtaskTitle}
+                      onChange={(e) => setSubtaskTitle(e.target.value)}
+                    />
+                    <button className="btn btn-primary btn-sm" onClick={submitSubtask}>Добавить</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-body" style={{ display: 'grid', gap: 12 }}>
+                  <div style={{ fontWeight: 700 }}>Чек-лист</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {taskChecklist.map((item) => (
+                      <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, background: 'var(--gray-50)' }}>
+                        <input
+                          type="checkbox"
+                          checked={item.isCompleted}
+                          onChange={() => toggleChecklistItem(item)}
+                        />
+                        <div style={{ flex: 1, textDecoration: item.isCompleted ? 'line-through' : 'none' }}>
+                          {item.title}
+                        </div>
+                        <button className="btn btn-secondary btn-sm" onClick={() => editChecklistItem(item)}>Редактировать</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => deleteChecklistItem(item.id)}>Удалить</button>
+                      </div>
+                    ))}
+                    {taskChecklist.length === 0 ? <div style={{ color: 'var(--gray-500)' }}>Чек-лист пока пуст.</div> : null}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      className="form-input"
+                      placeholder="Новый пункт чек-листа"
+                      value={checklistTitle}
+                      onChange={(e) => setChecklistTitle(e.target.value)}
+                    />
+                    <button className="btn btn-primary btn-sm" onClick={submitChecklistItem}>Добавить</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-body" style={{ display: 'grid', gap: 12 }}>
+                  <div style={{ fontWeight: 700 }}>Комментарии</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {taskComments.map((comment) => (
+                      <div key={comment.id} style={{ padding: 10, borderRadius: 10, background: 'var(--gray-50)' }}>
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>
+                          {comment.author_username} • {String(comment.created_at || '').slice(0, 16).replace('T', ' ')}
+                        </div>
+                        {editingCommentId === comment.id ? (
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            <textarea
+                              className="form-textarea"
+                              value={editingCommentText}
+                              onChange={(e) => setEditingCommentText(e.target.value)}
+                            />
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <button className="btn btn-primary btn-sm" onClick={() => saveCommentEdit(comment.id)}>
+                                Сохранить
+                              </button>
+                              <button className="btn btn-secondary btn-sm" onClick={cancelEditComment}>
+                                Отмена
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            <div>{comment.text}</div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <button className="btn btn-secondary btn-sm" onClick={() => startEditComment(comment)}>
+                                Редактировать
+                              </button>
+                              <button className="btn btn-secondary btn-sm" onClick={() => deleteComment(comment.id)}>
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {taskComments.length === 0 ? <div style={{ color: 'var(--gray-500)' }}>Комментариев пока нет.</div> : null}
+                  </div>
+                  <textarea
+                    className="form-textarea"
+                    placeholder="Оставить комментарий"
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                  />
+                  <div>
+                    <button className="btn btn-primary btn-sm" onClick={submitComment}>Добавить комментарий</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card" style={{ gridColumn: '1 / -1' }}>
+                <div className="card-body">
+                  <div style={{ fontWeight: 700, marginBottom: 10 }}>История изменений</div>
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Время</th>
+                          <th>Пользователь</th>
+                          <th>Действие</th>
+                          <th>Уровень</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {taskHistory.map((row) => (
+                          <tr key={row.id}>
+                            <td>{String(row.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+                            <td>{row.actor_username || '-'}</td>
+                            <td>{row.action}</td>
+                            <td>{row.level}</td>
+                          </tr>
+                        ))}
+                        {taskHistory.length === 0 ? (
+                          <tr><td colSpan={4}>История пока пустая.</td></tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : null}
 
-            <div className="kanban-board">
-              {columns.map((column) => (
-                <div
-                  key={column.order}
-                  className="kanban-col"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleDropToColumn(column.order)}
-                >
-                  <div className="kanban-col-header">
-                    <div>
-                      <span className="kanban-col-title">{column.name}</span>
-                      <div className="kanban-col-subtitle">
-                        {column.order === 1 && 'Новые входящие задачи'}
-                        {column.order === 2 && 'Активная работа'}
-                        {column.order === 3 && 'Ожидают проверки'}
-                        {column.order === 4 && 'Закрытые задачи'}
-                      </div>
-                    </div>
-                    <span className="badge badge-blue">{column.items.length}</span>
-                  </div>
-                  {(taskSection === 'team'
-                    ? Object.entries(
-                        column.items.reduce((acc, task) => {
-                          const key = task.assigneeName || 'Без исполнителя';
-                          if (!acc[key]) acc[key] = [];
-                          acc[key].push(task);
-                          return acc;
-                        }, {})
-                      ).sort(([leftName], [rightName]) => leftName.localeCompare(rightName, 'ru'))
-                    : [['', column.items]]
-                  ).map(([groupName, groupedTasks]) => (
-                    <div key={`${column.order}-${groupName || 'default'}`} className="task-group-block">
-                      {taskSection === 'team' && groupName ? (
-                        <div className="task-group-header">
-                          <span className="task-group-name">{groupName}</span>
-                          <span className="task-group-count">{groupedTasks.length}</span>
-                        </div>
-                      ) : null}
-                      {groupedTasks.map((task) => (
-                        <div
-                          key={task.id}
-                          className={`kanban-card ${task.isSystem ? 'is-system-task' : ''}`}
-                          draggable={!task.isReadOnly}
-                          onDragStart={() => handleDragStart(task)}
-                          onDragEnd={() => setDragTaskId(null)}
-                          style={{
-                            border: task.isOverdue ? '1px solid var(--danger)' : undefined,
-                            opacity: movingTaskId === task.id ? 0.6 : 1,
-                            cursor: 'pointer',
-                          }}
-                          onClick={() => openTaskDetails(task)}
-                        >
-                          <div className="kanban-card-top">
-                            <span className="task-assignee-banner"><UserRound size={13} /> {task.assigneeName}</span>
-                            <span className={`task-status-pill ${task.isOverdue ? 'is-overdue' : ''}`}>
-                              {task.isOverdue ? 'Просрочена' : (task.statusLabel || task.status)}
-                            </span>
-                          </div>
-                          <div className="task-card-badges">
-                            <span className={`task-priority-pill priority-${task.priority}`}>{PRIORITY_LABELS[task.priority] || task.priority}</span>
-                            {task.isSystem ? <span className="task-system-badge">{task.systemBadge}</span> : null}
-                            {task.isSystem ? <span className="task-type-badge">{task.taskTypeLabel}</span> : null}
-                          </div>
-                          <div className="kanban-card-title">{task.title}</div>
-                          <div className="kanban-card-description">{task.description || 'Без описания'}</div>
-                          <div className="task-meta-list">
-                            <div className="task-meta-item"><MessageSquareText size={13} /> {task.reporterName || 'Без постановщика'}</div>
-                            <div className={`task-meta-item ${task.isOverdue ? 'is-overdue' : ''}`}><CalendarDays size={13} /> {formatDate(task.dueDate)}</div>
-                          </div>
-                          {task.subtasks.length > 0 && (
-                            <div className="task-inline-note">
-                              Подзадачи: {task.subtasks.length}
-                            </div>
-                          )}
-                          {task.checklistItems.length > 0 && (
-                            <div className="task-inline-note">
-                              Чек-лист: {task.checklistItems.length}
-                            </div>
-                          )}
-                          {task.canCompleteParent ? (
-                            <div className="task-inline-note is-success">
-                              Все подзадачи выполнены — можно завершить основную задачу.
-                            </div>
-                          ) : null}
-                          {task.isReadOnly ? (
-                            <div className="task-inline-note">
-                              Редактирование закрыто для завершенной задачи.
-                            </div>
-                          ) : null}
-                          <div className="task-move-actions">
-                            {DEFAULT_COLUMN_ORDERS.map((order) => (
-                              <button
-                                key={`${task.id}-${order}`}
-                                className="btn btn-secondary btn-sm"
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  moveTask(task, order);
-                                }}
-                                disabled={movingTaskId === task.id || order === task.columnOrder || task.isReadOnly}
-                              >
-                                {DEFAULT_COLUMN_NAMES[order]}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                  {column.items.length === 0 ? <div className="kanban-empty-state">Пока пусто</div> : null}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {canSubmitDaily && (!canSwitchTaskSections || taskSection === 'my') && (
+          {!isProjectsView && canSubmitDaily && (
             <div className="card" style={{ marginTop: 16 }}>
               <div className="card-body" style={{ display: 'grid', gap: 10 }}>
                 <div style={{ fontWeight: 700 }}>Ежедневный отчет</div>
@@ -1176,129 +2003,36 @@ export default function Tasks() {
             </div>
           )}
 
-          {canViewDaily && canSwitchTaskSections && taskSection === 'team' && (
+          {isProjectsView && canViewDaily && selectedProjectId && (
             <div className="card" style={{ marginTop: 16 }}>
               <div className="card-body">
                 <div style={{ fontWeight: 700, marginBottom: 10 }}>Отчеты сотрудников за {reportDate}</div>
-                <div className="daily-report-summary">
-                  <div className="daily-report-summary-card">
-                    <span>Всего</span>
-                    <strong>{reportSummary.total}</strong>
-                  </div>
-                  <div className="daily-report-summary-card">
-                    <span>На проверке</span>
-                    <strong>{reportSummary.sent}</strong>
-                  </div>
-                  <div className="daily-report-summary-card">
-                    <span>Приняты</span>
-                    <strong>{reportSummary.accepted}</strong>
-                  </div>
-                  <div className="daily-report-summary-card is-alert">
-                    <span>Нужны правки</span>
-                    <strong>{reportSummary.revision}</strong>
-                  </div>
-                </div>
-
-                <div className="daily-report-grid">
-                  {reports.map((r) => (
-                    <div key={r.id} className="daily-report-card">
-                      <div className="daily-report-card__top">
-                        <div>
-                          <div className="daily-report-card__name">{r.username}</div>
-                          <div className="daily-report-card__meta">{r.date || reportDate}</div>
-                        </div>
-                        {reportStatusBadge(r.status, r.statusLabel)}
-                      </div>
-
-                      <div className="daily-report-card__sections">
-                        <div className="daily-report-card__section">
-                          <span>Начал</span>
-                          <p>{r.started || '—'}</p>
-                        </div>
-                        <div className="daily-report-card__section">
-                          <span>Взял в работу</span>
-                          <p>{r.taken || '—'}</p>
-                        </div>
-                        <div className="daily-report-card__section">
-                          <span>Завершил</span>
-                          <p>{r.completed || '—'}</p>
-                        </div>
-                        <div className="daily-report-card__section">
-                          <span>Блокеры</span>
-                          <p>{r.blockers || '—'}</p>
-                        </div>
-                      </div>
-
-                      {r.reviewComment ? (
-                        <div className="daily-report-card__review">
-                          <strong>Комментарий ревью</strong>
-                          <p>{r.reviewComment}</p>
-                          {(r.reviewedByUsername || r.reviewedAt) ? (
-                            <div className="daily-report-card__review-meta">
-                              {r.reviewedByUsername || 'Проверяющий'}{r.reviewedAt ? ` · ${formatDateTime(r.reviewedAt)}` : ''}
-                            </div>
-                          ) : null}
-                        </div>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Сотрудник</th>
+                        <th>Начал</th>
+                        <th>Взял в работу</th>
+                        <th>Завершил</th>
+                        <th>Блокеры</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reports.map((report) => (
+                        <tr key={report.id}>
+                          <td>{report.username}</td>
+                          <td>{report.started || '-'}</td>
+                          <td>{report.taken || '-'}</td>
+                          <td>{report.completed || '-'}</td>
+                          <td>{report.blockers || '-'}</td>
+                        </tr>
+                      ))}
+                      {reports.length === 0 ? (
+                        <tr><td colSpan={5}>Отчетов за этот день пока нет.</td></tr>
                       ) : null}
-
-                      {r.aiSummary ? (
-                        <div style={{
-                          margin: '8px 0',
-                          padding: '10px 12px',
-                          borderRadius: 8,
-                          background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)',
-                          border: '1px solid #bfdbfe',
-                          fontSize: 13,
-                        }}>
-                          <div style={{ fontWeight: 700, marginBottom: 6, color: '#1e40af', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            ✨ AI-анализ
-                            {r.aiAnalyzedAt && (
-                              <span style={{ fontSize: 11, fontWeight: 400, color: '#64748b' }}>
-                                · {formatDateTime(r.aiAnalyzedAt)}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ whiteSpace: 'pre-wrap', color: '#1e293b', lineHeight: 1.5 }}>{r.aiSummary}</div>
-                        </div>
-                      ) : null}
-
-                      <div className="daily-report-card__actions">
-                        {canReviewDaily ? (
-                          <>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => reviewDailyReport(r, 'ACCEPTED')}
-                              disabled={r.status === 'ACCEPTED'}
-                            >
-                              Принять
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => reviewDailyReport(r, 'REVISION_REQUIRED')}
-                            >
-                              Нужны правки
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => analyzeReport(r)}
-                              disabled={analyzingReportId === r.id}
-                              style={{ color: '#2563eb' }}
-                            >
-                              {analyzingReportId === r.id ? '⏳ Анализирую...' : '✨ AI-анализ'}
-                            </button>
-                          </>
-                        ) : (
-                          <span style={{ color: 'var(--gray-500)', fontSize: 12 }}>Режим просмотра</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {reports.length === 0 && (
-                    <div className="kanban-empty-state">Отчетов за этот день пока нет.</div>
-                  )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -1306,42 +2040,67 @@ export default function Tasks() {
         </>
       )}
 
-      {showModal ? (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+      {showTaskModal ? (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setShowTaskModal(false);
+            setEditingTaskId(null);
+            resetTaskForm();
+          }}
+        >
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <div className="modal-header">
-              <div className="modal-title">Новая задача</div>
-              <button className="btn-icon" onClick={() => setShowModal(false)}><X size={18} /></button>
+              <div className="modal-title">{editingTaskId ? 'Редактировать задачу' : 'Новая задача'}</div>
+              <button
+                className="btn-icon"
+                onClick={() => {
+                  setShowTaskModal(false);
+                  setEditingTaskId(null);
+                  resetTaskForm();
+                }}
+              >
+                <X size={18} />
+              </button>
             </div>
             <div className="modal-body">
+              {isManager ? (
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="form-label">Проект</label>
+                  <select
+                    className="form-select"
+                    value={taskForm.board_id}
+                    onChange={(e) => setTaskForm((prev) => ({ ...prev, board_id: e.target.value }))}
+                  >
+                    <option value="">Личная доска / без проекта</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>{project.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
               <div className="form-group" style={{ marginBottom: 12 }}>
                 <label className="form-label">Название</label>
-                <input className="form-input" value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} />
+                <input className="form-input" value={taskForm.title} onChange={(e) => setTaskForm((prev) => ({ ...prev, title: e.target.value }))} />
               </div>
               <div className="form-group" style={{ marginBottom: 12 }}>
                 <label className="form-label">Описание</label>
-                <textarea className="form-textarea" style={{ minHeight: 80 }} value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} />
+                <textarea className="form-textarea" style={{ minHeight: 80 }} value={taskForm.description} onChange={(e) => setTaskForm((prev) => ({ ...prev, description: e.target.value }))} />
               </div>
               <div className="grid-2" style={{ marginBottom: 12 }}>
-                {canSeeTeamTasksSection ? (
+                {taskForm.board_id ? (
                   <div className="form-group">
                     <label className="form-label">Исполнитель</label>
-                    <select className="form-select" value={form.assignee_id || user?.id || ''} onChange={(e) => setForm((prev) => ({ ...prev, assignee_id: e.target.value }))}>
-                      {assigneeOptions.length === 0 ? <option value={user?.id || ''}>Я</option> : null}
-                      {assigneeOptions.map((opt) => (
-                        <option key={opt.id} value={opt.id}>{opt.name}</option>
+                    <select className="form-select" value={taskForm.assignee_id} onChange={(e) => setTaskForm((prev) => ({ ...prev, assignee_id: e.target.value }))}>
+                      {visibleAssigneeOptions.map((option) => (
+                        <option key={option.id} value={option.id}>{option.name}</option>
                       ))}
                     </select>
                   </div>
-                ) : (
-                  <div className="form-group">
-                    <label className="form-label">Исполнитель</label>
-                    <input className="form-input" value={user?.name || user?.username || 'Я'} disabled />
-                  </div>
-                )}
+                ) : null}
                 <div className="form-group">
                   <label className="form-label">Приоритет</label>
-                  <select className="form-select" value={form.priority} onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))}>
+                  <select className="form-select" value={taskForm.priority} onChange={(e) => setTaskForm((prev) => ({ ...prev, priority: e.target.value }))}>
                     <option value="critical">Критический</option>
                     <option value="high">Высокий</option>
                     <option value="medium">Средний</option>
@@ -1351,196 +2110,101 @@ export default function Tasks() {
               </div>
               <div className="form-group">
                 <label className="form-label">Срок</label>
-                <input className="form-input" type="date" value={form.due_date} onChange={(e) => setForm((prev) => ({ ...prev, due_date: e.target.value }))} />
+                <input className="form-input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm((prev) => ({ ...prev, due_date: e.target.value }))} />
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Отмена</button>
-              <button className="btn btn-primary" onClick={createTask}>Создать</button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowTaskModal(false);
+                  setEditingTaskId(null);
+                  resetTaskForm();
+                }}
+              >
+                Отмена
+              </button>
+              <button className="btn btn-primary" onClick={saveTask}>{editingTaskId ? 'Сохранить' : 'Создать'}</button>
             </div>
           </div>
         </div>
       ) : null}
 
-      {selectedTask ? (
-        <div className="modal-overlay" onClick={() => setSelectedTask(null)}>
-          <div className="modal task-detail-modal" onClick={(e) => e.stopPropagation()}>
+      {showProjectModal ? (
+        <div className="modal-overlay" onClick={closeProjectModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <div className="modal-header">
-              <div className="modal-title">{selectedTask.title}</div>
-              <button className="btn-icon" onClick={() => setSelectedTask(null)}><X size={18} /></button>
+              <div className="modal-title">{editingProjectId ? 'Редактировать проект' : 'Новый проект'}</div>
+              <button className="btn-icon" onClick={closeProjectModal}><X size={18} /></button>
             </div>
             <div className="modal-body">
-              {detailLoading ? (
-                <div>Загрузка...</div>
-              ) : (
-                <div className="task-detail-layout">
-                  <div className="task-detail-main">
-                    <div className="task-detail-summary">
-                      <span className={`task-priority-pill priority-${selectedTask.priority}`}>{PRIORITY_LABELS[selectedTask.priority] || selectedTask.priority}</span>
-                      <span className={`task-status-pill ${selectedTask.isOverdue ? 'is-overdue' : ''}`}>
-                        {selectedTask.isOverdue ? 'Просрочена' : (selectedTask.statusLabel || selectedTask.status)}
-                      </span>
-                    </div>
-                    <div className="task-detail-description">{selectedTask.description || 'Без описания'}</div>
-                    <div className="task-detail-facts">
-                      <div className="task-detail-fact"><span>Исполнитель</span><strong>{selectedTask.assigneeName}</strong></div>
-                      <div className="task-detail-fact"><span>Постановщик</span><strong>{selectedTask.reporterName || '-'}</strong></div>
-                      <div className="task-detail-fact"><span>Срок</span><strong>{selectedTask.dueDate || '—'}</strong></div>
-                      <div className="task-detail-fact"><span>Подзадачи</span><strong>{selectedTask.subtasks.length}</strong></div>
-                    </div>
-                    {selectedTask.subtasks.length > 0 ? (
-                      <div className="task-detail-panel">
-                        <div className="task-detail-panel-title">Подзадачи</div>
-                        <div className="task-detail-chip-list">
-                          {selectedTask.subtasks.map((item) => (
-                            <span key={item.id || item.title} className="task-detail-chip">{item.title}</span>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    {selectedTask.checklistItems.length > 0 ? (
-                      <div className="task-detail-panel">
-                        <div className="task-detail-panel-title">Чек-лист</div>
-                        <div className="task-detail-chip-list">
-                          {selectedTask.checklistItems.map((item) => (
-                            <span key={item.id || item.text} className="task-detail-chip">{item.text}</span>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="task-detail-panel">
-                      <div className="task-detail-panel-title">Вложения</div>
-                      <div className="task-detail-scroll">
-                        {(selectedTask.attachments || []).map((item) => (
-                          <div key={item.id} className="task-detail-entry">
-                            <div className="task-detail-entry-title">
-                              <a href={item.file_url || item.file} target="_blank" rel="noreferrer">{item.filename || 'Файл'}</a>
-                            </div>
-                            <div className="task-detail-entry-meta">
-                              {item.uploaded_by_username || 'Пользователь'} • {item.uploaded_at}
-                            </div>
-                            <div className="task-detail-entry-body">
-                              Размер: {item.size ? `${Math.max(1, Math.round(item.size / 1024))} KB` : '—'}
-                            </div>
-                            <div style={{ marginTop: 8 }}>
-                              <button className="btn btn-secondary btn-sm" type="button" onClick={() => deleteAttachment(item.id)}>
-                                Удалить
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                        {(selectedTask.attachments || []).length === 0 ? <div className="task-detail-empty">Вложений пока нет.</div> : null}
-                      </div>
-                      <input
-                        className="form-input"
-                        type="file"
-                        style={{ marginTop: 8 }}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) uploadAttachment(file);
-                          e.target.value = '';
-                        }}
-                        disabled={attachmentUploading}
-                      />
-                      <div className="task-section-subtitle">До 10MB. Запрещены: .exe, .bat, .sh</div>
-                    </div>
-                  </div>
-                  <div className="task-detail-side">
-                    <div className="task-detail-panel">
-                      <div className="task-detail-panel-title">Комментарии</div>
-                      <div className="task-detail-scroll">
-                        {taskComments.map((item) => (
-                          <div key={item.id} className="task-detail-entry">
-                            <div className="task-detail-entry-title">{item.author_username || 'Пользователь'}</div>
-                            <div className="task-detail-entry-meta">{item.created_at}</div>
-                            <div className="task-detail-entry-body">{item.text}</div>
-                          </div>
-                        ))}
-                        {taskComments.length === 0 ? <div className="task-detail-empty">Комментариев пока нет.</div> : null}
-                      </div>
-                      <textarea
-                        className="form-textarea"
-                        style={{ marginTop: 8 }}
-                        placeholder="Добавить комментарий"
-                        value={commentText}
-                        onChange={(e) => setCommentText(e.target.value)}
-                      />
-                      <button className="btn btn-primary" type="button" onClick={addComment}>Отправить комментарий</button>
-                    </div>
-                    <div className="task-detail-panel">
-                      <div className="task-detail-panel-title">История изменений</div>
-                      <div className="task-detail-scroll is-tall">
-                        {taskHistory.map((item) => (
-                          <div key={item.id} className="task-detail-entry">
-                            <div className="task-detail-entry-title">{item.action}</div>
-                            <div className="task-detail-entry-meta">{item.actor_username || 'Система'} • {item.created_at}</div>
-                            <div className="task-detail-entry-body">{item.field_name ? `${item.field_name}: ` : ''}{item.old_value ? `${item.old_value} → ` : ''}{item.new_value || '—'}</div>
-                          </div>
-                        ))}
-                        {taskHistory.length === 0 ? <div className="task-detail-empty">История пока пуста.</div> : null}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {progressUser ? (
-        <div className="modal-overlay" onClick={() => setProgressUser(null)}>
-          <div className="modal" style={{ maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">Прогресс: {progressUser.name}</div>
-              <button className="btn-icon" onClick={() => setProgressUser(null)}><X size={18} /></button>
-            </div>
-            <div className="modal-body">
-              {progressLoading ? (
-                <div>Загрузка...</div>
-              ) : (
-                <>
-                  {isInternMember ? (
-                    <>
-                      <div style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 8 }}>
-                        День: {progressData?.overview?.current_day_number || '-'} | Выполнено: {completedDays}/{totalDays}
-                      </div>
-                      <div style={{ marginBottom: 12 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
-                          Прогресс стажировки: {progressPercent}%
-                        </div>
-                        <div style={{ height: 10, borderRadius: 999, background: 'var(--gray-200)', overflow: 'hidden' }}>
-                          <div
-                            style={{
-                              width: `${progressPercent}%`,
-                              height: '100%',
-                              background: 'var(--primary)',
-                            }}
-                          />
-                        </div>
-                      </div>
-                      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Регламенты</div>
-                      <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--gray-200)', borderRadius: 8, padding: 8, marginBottom: 10 }}>
-                        {(progressData?.regulations || []).map((item) => (
-                          <div key={item.id} style={{ fontSize: 12, marginBottom: 6 }}>
-                            День {item.day_number} • {item.title} • шаг: {item.step} • тест: {item.quiz_score}/{item.quiz_total}
-                          </div>
-                        ))}
-                        {(progressData?.regulations || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Нет данных.</div>}
-                      </div>
-                    </>
-                  ) : null}
-                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Задачи</div>
-                  <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid var(--gray-200)', borderRadius: 8, padding: 8 }}>
-                    {(progressData?.tasks || []).map((item) => (
-                      <div key={item.id} style={{ fontSize: 12, marginBottom: 6 }}>
-                        {item.title} • {item.column}
-                      </div>
+              <div className="form-group" style={{ marginBottom: 12 }}>
+                <label className="form-label">Название проекта</label>
+                <input className="form-input" value={projectForm.name} onChange={(e) => setProjectForm((prev) => ({ ...prev, name: e.target.value }))} />
+              </div>
+              <div className="form-group" style={{ marginBottom: 12 }}>
+                <label className="form-label">Описание</label>
+                <textarea className="form-textarea" value={projectForm.description} onChange={(e) => setProjectForm((prev) => ({ ...prev, description: e.target.value }))} />
+              </div>
+              <div className="grid-2" style={{ marginBottom: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Статус проекта</label>
+                  <select
+                    className="form-select"
+                    value={projectForm.status}
+                    onChange={(e) => setProjectForm((prev) => ({ ...prev, status: e.target.value }))}
+                  >
+                    {Object.entries(PROJECT_STATUS_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
                     ))}
-                    {(progressData?.tasks || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Нет задач.</div>}
-                  </div>
-                </>
-              )}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Дата завершения</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={projectForm.end_date}
+                    onChange={(e) => setProjectForm((prev) => ({ ...prev, end_date: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 12 }}>
+                <label className="form-label">Ответственный</label>
+                <select
+                  className="form-select"
+                  value={projectForm.responsible_user_id}
+                  onChange={(e) => setProjectForm((prev) => ({ ...prev, responsible_user_id: e.target.value }))}
+                >
+                  <option value="">Не выбран</option>
+                  {projectMemberOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Участники проекта</label>
+                <select
+                  multiple
+                  className="form-select"
+                  style={{ minHeight: 180 }}
+                  value={projectForm.member_ids.map(String)}
+                  onChange={(e) => {
+                    const values = Array.from(e.target.selectedOptions).map((option) => Number(option.value));
+                    setProjectForm((prev) => ({ ...prev, member_ids: values }));
+                  }}
+                >
+                  {projectMemberOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={closeProjectModal}>Отмена</button>
+              <button className="btn btn-primary" onClick={saveProject}>
+                {editingProjectId ? 'Сохранить проект' : 'Создать проект'}
+              </button>
             </div>
           </div>
         </div>

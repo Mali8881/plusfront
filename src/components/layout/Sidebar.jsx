@@ -17,30 +17,19 @@ import {
   GraduationCap,
   MessageSquare,
   CheckSquare,
+  FolderKanban,
   Wallet,
-  MapPin,
-  Activity,
 } from 'lucide-react';
 
 const NAV_INTERN = [
   { label: 'Главная', icon: Home, path: '/dashboard' },
   { label: 'Онбординг', icon: GraduationCap, path: '/onboarding' },
-  { label: 'Материалы', icon: BookOpen, path: '/lessons' },
-  { label: 'Курсы', icon: BookOpen, path: '/courses' },
-  { label: 'Мои задачи', icon: CheckSquare, path: '/tasks' },
-  { label: 'База знаний', icon: FileText, path: '/wiki' },
-  { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
-  { label: 'Зарплата', icon: Wallet, path: '/salary' },
 ];
 
 const NAV_EMPLOYEE = [
   { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Мои задачи', icon: CheckSquare, path: '/tasks' },
-  { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
-  { label: 'База знаний', icon: FileText, path: '/wiki' },
-  { label: 'Материалы', icon: BookOpen, path: '/lessons' },
-  { label: 'Курсы', icon: BookOpen, path: '/courses' },
-  { label: 'Ресурсы', icon: MapPin, path: '/resources' },
+  { label: 'Задачи', icon: CheckSquare, path: '/tasks' },
+  { label: 'Проекты', icon: FolderKanban, path: '/projects' },
   { label: 'Зарплата', icon: Wallet, path: '/salary' },
   { label: 'Компания', icon: Users, path: '/company' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
@@ -50,29 +39,21 @@ const NAV_EMPLOYEE = [
 
 const NAV_PM = [
   { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Задачи команды', icon: CheckSquare, path: '/tasks' },
-  { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
-  { label: 'База знаний', icon: FileText, path: '/wiki' },
-  { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
-  { label: 'Материалы', icon: BookOpen, path: '/lessons' },
-  { label: 'Курсы', icon: BookOpen, path: '/courses' },
+  { label: 'Задачи', icon: CheckSquare, path: '/tasks' },
+  { label: 'Проекты', icon: FolderKanban, path: '/projects' },
+  { label: 'Онбординг / Отчёты', icon: GraduationCap, path: '/admin/onboarding' },
+  { label: 'Зарплата', icon: Wallet, path: '/salary' },
   { label: 'Компания', icon: Users, path: '/company' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
   { label: 'График работы', icon: Calendar, path: '/schedule' },
   { label: 'Инструкция', icon: BookOpen, path: '/instructions' },
 ];
 
-const NAV_TEAMLEAD = [...NAV_PM];
-
 const NAV_DEPARTMENT_HEAD = [
   { section: 'МОИ РАЗДЕЛЫ' },
   { label: 'Главная', icon: Home, path: '/dashboard' },
   { label: 'Задачи', icon: CheckSquare, path: '/tasks' },
-  { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
-  { label: 'База знаний', icon: FileText, path: '/wiki' },
-  { label: 'Материалы', icon: BookOpen, path: '/lessons' },
-  { label: 'Курсы', icon: BookOpen, path: '/courses' },
-  { label: 'Ресурсы', icon: MapPin, path: '/resources' },
+  { label: 'Проекты', icon: FolderKanban, path: '/projects' },
   { label: 'Компания', icon: Users, path: '/company' },
   { label: 'График работы', icon: Calendar, path: '/schedule' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
@@ -80,10 +61,7 @@ const NAV_DEPARTMENT_HEAD = [
   { section: 'УПРАВЛЕНИЕ' },
   { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
-  { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
-  { label: 'Онбординг / Отчёты', icon: GraduationCap, path: '/admin/onboarding' },
   { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
-  { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
   { label: 'Обратная связь', icon: MessageSquare, path: '/admin/feedback' },
 ];
 
@@ -91,11 +69,7 @@ const NAV_ADMIN = [
   { section: 'МОИ РАЗДЕЛЫ' },
   { label: 'Главная', icon: Home, path: '/dashboard' },
   { label: 'Задачи', icon: CheckSquare, path: '/tasks' },
-  { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
-  { label: 'База знаний', icon: FileText, path: '/wiki' },
-  { label: 'Материалы', icon: BookOpen, path: '/lessons' },
-  { label: 'Курсы', icon: BookOpen, path: '/courses' },
-  { label: 'Ресурсы', icon: MapPin, path: '/resources' },
+  { label: 'Проекты', icon: FolderKanban, path: '/projects' },
   { label: 'Компания', icon: Users, path: '/company' },
   { label: 'График работы', icon: Calendar, path: '/schedule' },
   { label: 'Регламенты', icon: BookMarked, path: '/regulations' },
@@ -103,66 +77,38 @@ const NAV_ADMIN = [
   { section: 'УПРАВЛЕНИЕ' },
   { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
+  { label: 'Роли и права', icon: Shield, path: '/admin/roles' },
+  { label: 'Контент', icon: FileText, path: '/admin/content' },
   { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
-  { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
   { label: 'Обратная связь', icon: MessageSquare, path: '/admin/feedback' },
 ];
 
 const NAV_SUPERADMIN = [
   { section: 'МОИ РАЗДЕЛЫ' },
   { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
-  { label: 'База знаний', icon: FileText, path: '/wiki' },
-  { label: 'Ресурсы', icon: MapPin, path: '/resources' },
+  { label: 'Задачи', icon: CheckSquare, path: '/tasks' },
+  { label: 'Проекты', icon: FolderKanban, path: '/projects' },
   { label: 'Компания', icon: Users, path: '/company' },
   { label: 'График работы', icon: Calendar, path: '/schedule' },
   { section: 'УПРАВЛЕНИЕ' },
   { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
   { label: 'Пользователи', icon: Users, path: '/admin/users' },
   { label: 'Роли и права', icon: Shield, path: '/admin/roles' },
-  { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
-  { label: 'Онбординг', icon: GraduationCap, path: '/admin/onboarding' },
-  { label: 'Отделы и подотделы', icon: LayoutGrid, path: '/admin/departments-subdivisions' },
   { label: 'Зарплаты', icon: Wallet, path: '/salary' },
   { label: 'Контент', icon: FileText, path: '/admin/content' },
   { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
-  { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
   { label: 'Обратная связь', icon: MessageSquare, path: '/admin/feedback' },
   { section: 'СИСТЕМА' },
   { label: 'Система / Безопасность', icon: Settings, path: '/admin/system' },
   { label: 'Интерфейс', icon: LayoutGrid, path: '/admin/interface' },
 ];
 
-const NAV_ADMINISTRATOR = [
-  { section: 'МОИ РАЗДЕЛЫ' },
-  { label: 'Главная', icon: Home, path: '/dashboard' },
-  { label: 'Трекер настроения', icon: Activity, path: '/pulse' },
-  { label: 'База знаний', icon: FileText, path: '/wiki' },
-  { label: 'Ресурсы', icon: MapPin, path: '/resources' },
-  { label: 'Компания', icon: Users, path: '/company' },
-  { label: 'График работы', icon: Calendar, path: '/schedule' },
-  { label: 'Зарплата', icon: Wallet, path: '/salary' },
-  { section: 'УПРАВЛЕНИЕ' },
-  { label: 'Обзор', icon: LayoutGrid, path: '/admin/overview' },
-  { label: 'Пользователи', icon: Users, path: '/admin/users' },
-  { label: 'Стажеры', icon: GraduationCap, path: '/admin/interns' },
-  { label: 'Онбординг', icon: GraduationCap, path: '/admin/onboarding' },
-  { label: 'Отделы и подотделы', icon: LayoutGrid, path: '/admin/departments-subdivisions' },
-  { label: 'Контент', icon: FileText, path: '/admin/content' },
-  { label: 'График работы сотрудников', icon: Calendar, path: '/admin/schedules' },
-  { label: 'Отметки сотрудников', icon: CheckSquare, path: '/attendance-marks' },
-  { label: 'Обратная связь', icon: MessageSquare, path: '/admin/feedback' },
-];
-
 const NAV_MAP = {
   intern: NAV_INTERN,
   employee: NAV_EMPLOYEE,
   projectmanager: NAV_PM,
-  teamlead: NAV_TEAMLEAD,
   department_head: NAV_DEPARTMENT_HEAD,
   admin: NAV_ADMIN,
-  administrator: NAV_ADMINISTRATOR,
-  systemadmin: NAV_ADMINISTRATOR,
   superadmin: NAV_SUPERADMIN,
 };
 
@@ -172,11 +118,17 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const [hideMenuPanelOpen, setHideMenuPanelOpen] = useState(false);
+
+  const canCustomizeHide =
+    user?.role === 'department_head' || user?.role === 'admin' || user?.role === 'projectmanager' || user?.role === 'employee';
   const baseNav = NAV_MAP[user?.role] || NAV_INTERN;
-  const nav = baseNav;
+  const nav = canCustomizeHide
+    ? baseNav.filter((item) => item.path !== '/regulations' && item.path !== '/instructions')
+    : baseNav;
 
   const handleHome = () => {
-    if (['department_head', 'admin', 'administrator', 'superadmin', 'systemadmin'].includes(String(user?.role || '').toLowerCase())) {
+    if (user?.role === 'department_head' || user?.role === 'admin' || user?.role === 'superadmin') {
       navigate('/admin/overview');
     }
     else navigate('/dashboard');
@@ -186,6 +138,7 @@ export default function Sidebar() {
     const map = {
       'Главная': 'sidebar.home',
       'Задачи': 'sidebar.tasks',
+      'Проекты': 'sidebar.projects',
       'Мои задачи': 'sidebar.myTasks',
       'Задачи команды': 'sidebar.teamTasks',
       'Зарплата': 'sidebar.salary',
@@ -193,22 +146,13 @@ export default function Sidebar() {
       'Регламенты': 'sidebar.regulations',
       'График работы': 'sidebar.schedule',
       'Инструкция': 'sidebar.instructions',
-      'Материалы': 'sidebar.lessons',
-      'Курсы': 'sidebar.courses',
-      'Ресурсы': 'sidebar.resources',
       'Обзор': 'sidebar.overview',
       'Пользователи': 'sidebar.users',
       'Роли и права': 'sidebar.roles',
-      'Стажеры': 'sidebar.interns',
-      'Отделы и подотделы': 'sidebar.departmentsSubdivisions',
       'Контент': 'sidebar.content',
-      'Онбординг': 'sidebar.onboarding',
       'Онбординг / Отчёты': 'sidebar.onboarding',
       'График работы сотрудников': 'sidebar.workSchedules',
-      'Отметки сотрудников': 'sidebar.attendanceMarks',
       'Обратная связь': 'sidebar.feedback',
-      'Трекер настроения': 'sidebar.pulse',
-      'База знаний': 'sidebar.wiki',
       'Система / Безопасность': 'sidebar.systemSecurity',
       'Интерфейс': 'sidebar.interface',
     };
@@ -258,6 +202,31 @@ export default function Sidebar() {
           );
         })}
 
+        {canCustomizeHide && !collapsed && (
+          <>
+            <div className="nav-section-label">{t('sidebar.hideSection', 'СКРЫТИЕ РАЗДЕЛОВ')}</div>
+            <div
+              className="nav-item"
+              onClick={() => setHideMenuPanelOpen((v) => !v)}
+              title="Свернуть/развернуть блок скрытия"
+            >
+              {hideMenuPanelOpen ? <ChevronLeft className="nav-item-icon" size={17} /> : <ChevronRight className="nav-item-icon" size={17} />}
+              <span className="nav-item-label">{t('sidebar.hideToggle', 'Скрыть разделы')}</span>
+            </div>
+            {hideMenuPanelOpen && (
+              <>
+                <div className="nav-item" onClick={() => navigate('/regulations')} title={t('sidebar.regulations', 'Regulations')}>
+                  <BookMarked className="nav-item-icon" size={17} />
+                  <span className="nav-item-label">{t('sidebar.regulations', 'Regulations')}</span>
+                </div>
+                <div className="nav-item" onClick={() => navigate('/instructions')} title={t('sidebar.instructions', 'Instructions')}>
+                  <BookOpen className="nav-item-icon" size={17} />
+                  <span className="nav-item-label">{t('sidebar.instructions', 'Instructions')}</span>
+                </div>
+              </>
+            )}
+          </>
+        )}
       </nav>
 
       <div className="sidebar-footer">
